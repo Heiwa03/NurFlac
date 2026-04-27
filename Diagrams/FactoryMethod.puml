@@ -1,0 +1,85 @@
+@startuml FactoryMethod
+
+title Factory Method Pattern — SpectralAnalyzerFactory
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam packageStyle rectangle
+
+together {
+  interface ISpectralAnalyzer <<interface>> {
+    + GetFrequencyCutoffAsync(filePath : string) : Task<double>
+    + IsTrueLosslessAsync(filePath : string) : Task<bool>
+  }
+
+  abstract class BaseSpectralAnalyzer <<abstract>> {
+    - {static} Mp3CutoffThreshold : double
+    - {static} AacCutoffThreshold : double
+    - {static} LosslessMinCutoff : double
+    + GetFrequencyCutoffAsync(filePath : string) : Task<double>
+    + IsTrueLosslessAsync(filePath : string) : Task<bool>
+    # {abstract} DecodeToPcmAsync(filePath : string) : Task<float[]>
+    - {static} AnalyzeSpectrum(samples : float[]) : double
+  }
+}
+
+class FlacSpectralAnalyzer {
+  # DecodeToPcmAsync(filePath : string) : Task<float[]>
+}
+
+class WavSpectralAnalyzer {
+  # DecodeToPcmAsync(filePath : string) : Task<float[]>
+}
+
+class AlacSpectralAnalyzer {
+  # DecodeToPcmAsync(filePath : string) : Task<float[]>
+}
+
+class AiffSpectralAnalyzer {
+  # DecodeToPcmAsync(filePath : string) : Task<float[]>
+}
+
+class SpectralAnalyzerFactory {
+  + Create(filePath : string) : ISpectralAnalyzer
+}
+
+class FFmpegAudioProcessor {
+  - _analyzerFactory : SpectralAnalyzerFactory
+  + VerifyLosslessQualityAsync(filePath : string) : Task<bool>
+  + ConvertToFlacAsync(inputPath : string) : Task<string>
+}
+
+' Realization
+BaseSpectralAnalyzer ..|> ISpectralAnalyzer : realizes
+
+' Generalizations (concrete products)
+FlacSpectralAnalyzer --|> BaseSpectralAnalyzer
+WavSpectralAnalyzer --|> BaseSpectralAnalyzer
+AlacSpectralAnalyzer --|> BaseSpectralAnalyzer
+AiffSpectralAnalyzer --|> BaseSpectralAnalyzer
+
+' Factory creates products
+SpectralAnalyzerFactory ..> ISpectralAnalyzer : «creates»
+
+' Client uses factory
+FFmpegAudioProcessor --> SpectralAnalyzerFactory : uses
+
+note top of SpectralAnalyzerFactory
+  Creator
+  Factory method: Create()
+  selects ConcreteProduct
+  by file extension
+end note
+
+note right of ISpectralAnalyzer
+  Product
+end note
+
+note bottom of BaseSpectralAnalyzer
+  Abstract Product
+  (also Template Method base)
+end note
+
+footer Factory Method · GoF Creational · NurFlac
+
+@enduml

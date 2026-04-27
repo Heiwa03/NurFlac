@@ -1,0 +1,113 @@
+@startuml Decorator
+
+title Decorator Pattern — Lossless Audio Validation Pipeline
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Supporting types ───────────────────────────────────────────
+class AudioFileContext {
+  + FileName : string
+  + Extension : string
+  + MimeType : string?
+  + TelegramFileId : string
+  + LocalFilePath : string?
+}
+
+class ValidationResult <<record>> {
+  + IsValid : bool
+  + RejectionReason : string?
+  + {static} Valid() : ValidationResult
+  + {static} Reject(reason : string) : ValidationResult
+}
+
+' ── Component interface ────────────────────────────────────────
+interface ILosslessAudioValidator <<interface>> {
+  + ValidateAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<ValidationResult>
+}
+
+' ── Concrete component (leaf) ──────────────────────────────────
+class PassthroughValidator {
+  + ValidateAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<ValidationResult>
+}
+
+' ── Abstract decorator ─────────────────────────────────────────
+abstract class AudioValidatorDecorator <<abstract>> {
+  # Inner : ILosslessAudioValidator
+  # AudioValidatorDecorator(inner : ILosslessAudioValidator)
+  + {abstract} ValidateAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<ValidationResult>
+}
+
+' ── Concrete decorators ────────────────────────────────────────
+class ExtensionValidatorDecorator {
+  - _registry : AudioFormatRegistry
+  + ValidateAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<ValidationResult>
+}
+
+class MimeValidatorDecorator {
+  - _registry : AudioFormatRegistry
+  + ValidateAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<ValidationResult>
+}
+
+class SpectralValidatorDecorator {
+  - _audioProcessor : IAudioProcessor
+  + ValidateAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<ValidationResult>
+}
+
+' ── Client ─────────────────────────────────────────────────────
+class SingleAudioUploadCommand {
+  - _validator : ILosslessAudioValidator
+  + ExecuteAsync(message : Message, user : User) : Task
+}
+
+' Realization
+PassthroughValidator ..|> ILosslessAudioValidator : realizes
+AudioValidatorDecorator ..|> ILosslessAudioValidator : realizes
+
+' Inheritance
+ExtensionValidatorDecorator --|> AudioValidatorDecorator
+MimeValidatorDecorator --|> AudioValidatorDecorator
+SpectralValidatorDecorator --|> AudioValidatorDecorator
+
+' Decorator wraps inner component
+AudioValidatorDecorator o--> "1" ILosslessAudioValidator : Inner\n(wraps)
+
+' Client depends on component interface
+SingleAudioUploadCommand --> ILosslessAudioValidator : _validator
+
+' Result type
+ILosslessAudioValidator ..> ValidationResult : «creates»
+
+note bottom of PassthroughValidator
+  Innermost element.
+  Always returns Valid().
+  Terminates the delegation chain.
+end note
+
+note right of ExtensionValidatorDecorator
+  **Step 1** (active)
+  Rejects if extension unknown
+  or belongs to lossy format.
+end note
+
+note right of MimeValidatorDecorator
+  **Step 2** (active)
+  Rejects if Telegram MIME type
+  indicates a lossy format.
+  Passes through if MimeType is null.
+end note
+
+note right of SpectralValidatorDecorator
+  **Step 3** (active when file downloaded)
+  Runs spectral analysis via IAudioProcessor.
+  Passes through if LocalFilePath is null.
+end note
+
+note top of SingleAudioUploadCommand
+  Runtime composition (DI):
+  Spectral( Mime( Extension( Passthrough() ) ) )
+end note
+
+footer Decorator · GoF Structural · NurFlac
+
+@enduml

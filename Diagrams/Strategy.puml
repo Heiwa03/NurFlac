@@ -1,0 +1,62 @@
+@startuml Strategy
+
+title Strategy Pattern — Audio Fingerprint Providers
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Strategy interface ─────────────────────────────────────────
+interface IAudioFingerprintProvider <<interface>> {
+  + CreateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<AudioFingerprint>
+}
+
+' ── Concrete Strategies ────────────────────────────────────────
+class FfmpegFingerprintProvider {
+  + CreateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<AudioFingerprint>
+}
+
+class ExternalFingerprintApiAdapter {
+  - _externalApi : IExternalFingerprintApi
+  + CreateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<AudioFingerprint>
+}
+
+' ── Context ────────────────────────────────────────────────────
+class DuplicateCheckFacade {
+  - _fingerprintProviders : IReadOnlyList<IAudioFingerprintProvider>
+  - _repository : IDuplicateFingerprintRepository
+  + CheckAsync(filePath : string, cancellationToken : CancellationToken) : Task<DuplicateCheckResult>
+  + RegisterUploadedAsync(checkResult : DuplicateCheckResult, fileName : string, uploadedByTelegramId : long, cancellationToken : CancellationToken) : Task
+}
+
+' ── Supporting types ───────────────────────────────────────────
+class AudioFingerprint <<record>> {
+  + Value : string
+  + ProviderName : string
+}
+
+' Realization
+FfmpegFingerprintProvider ..|> IAudioFingerprintProvider : realizes
+ExternalFingerprintApiAdapter ..|> IAudioFingerprintProvider : realizes
+
+' Context holds ordered list of strategies (aggregation)
+DuplicateCheckFacade o--> "0..*" IAudioFingerprintProvider : _fingerprintProviders\n(tried in order)
+
+' Strategies produce the result type
+IAudioFingerprintProvider ..> AudioFingerprint : «creates»
+
+note top of IAudioFingerprintProvider
+  Strategy
+  Interchangeable fingerprinting
+  algorithm; selected at runtime
+  via DI configuration
+end note
+
+note left of DuplicateCheckFacade
+  Context
+  Iterates strategies in order;
+  returns on first success
+end note
+
+footer Strategy · GoF Behavioral · NurFlac
+
+@enduml

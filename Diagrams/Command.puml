@@ -1,0 +1,126 @@
+@startuml Command
+
+title Command Pattern — Telegram Bot Command Dispatch
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Command interface ──────────────────────────────────────────
+interface ICommand <<interface>> {
+  + ExecuteAsync(message : Message, user : User) : Task
+}
+
+' ── Abstract base command (admin guard via Template Method) ────
+abstract class AdminOnlyCommand <<abstract>> {
+  - _botClient : ITelegramBotClient
+  - _adminTelegramIds : long[]
+  + ExecuteAsync(message : Message, user : User) : Task
+  # {abstract} ExecuteAdminAsync(message : Message, user : User) : Task
+}
+
+' ── Concrete Commands ──────────────────────────────────────────
+class StartCommand {
+  - _botClient : ITelegramBotClient
+  + ExecuteAsync(message : Message, user : User) : Task
+}
+
+class HelpCommand {
+  - _botClient : ITelegramBotClient
+  - _serviceProvider : IServiceProvider
+  + ExecuteAsync(message : Message, user : User) : Task
+}
+
+class SingleAudioUploadCommand {
+  - _audioProcessor : IAudioProcessor
+  - _storageService : IStorageService
+  + ExecuteAsync(message : Message, user : User) : Task
+}
+
+class TestUploadCommand {
+  - _botClient : ITelegramBotClient
+  - _storageService : IStorageService
+  - _duplicateCheckFacade : IDuplicateCheckFacade
+  # ExecuteAdminAsync(message : Message, user : User) : Task
+}
+
+' ── Command Registry ───────────────────────────────────────────
+class CommandRegistration {
+  + Name : string
+  + Aliases : string[]
+  + Category : string
+  + Handler : ICommand
+}
+
+interface ICommandCatalog <<interface>> {
+  + TryResolve(rawCommandKey : string, registration : CommandRegistration) : bool
+  + GetAll() : IReadOnlyCollection<CommandRegistration>
+}
+
+class CommandCatalog {
+  - _index : Dictionary<string, CommandRegistration>
+  - _all : IReadOnlyCollection<CommandRegistration>
+  + TryResolve(rawCommandKey : string, registration : CommandRegistration) : bool
+  + GetAll() : IReadOnlyCollection<CommandRegistration>
+}
+
+' ── Invoker ────────────────────────────────────────────────────
+class CommandRouter {
+  - _catalog : ICommandCatalog
+  - _tracker : ICommandExecutionTracker
+  + RouteMessageAsync(message : Message) : Task
+}
+
+' ── Receiver context ───────────────────────────────────────────
+class User {
+  + Id : Guid
+  + TelegramId : long
+  + Status : UserStatus
+  + StrikeCount : int
+}
+
+' Realizations
+AdminOnlyCommand ..|> ICommand : realizes
+StartCommand ..|> ICommand : realizes
+HelpCommand ..|> ICommand : realizes
+SingleAudioUploadCommand ..|> ICommand : realizes
+
+' Inheritance from AdminOnlyCommand
+TestUploadCommand --|> AdminOnlyCommand
+
+' CommandRegistration holds a Command
+CommandRegistration --> "1" ICommand : Handler
+
+' Catalog
+CommandCatalog ..|> ICommandCatalog : realizes
+CommandCatalog o--> "0..*" CommandRegistration : _index (by name/alias)
+
+' Invoker
+CommandRouter --> ICommandCatalog : resolves
+CommandRouter ..> ICommand : «invokes»\nExecuteAsync()
+
+' Command receives User
+ICommand ..> User : uses
+
+note top of CommandRouter
+  Invoker
+  Resolves command key from
+  Telegram message text;
+  delegates execution to Handler
+end note
+
+note right of ICommand
+  Command interface
+  Encapsulates a Telegram
+  request as an object
+end note
+
+note bottom of CommandCatalog
+  Registry
+  O(1) lookup by name or alias;
+  keys normalized to lowercase
+  with leading '/' stripped
+end note
+
+footer Command + Registry · GoF Behavioral · NurFlac
+
+@enduml

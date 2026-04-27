@@ -1,0 +1,104 @@
+@startuml Bridge
+
+title Bridge Pattern — AudioLibraryStorage
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Implementor interface (already existing) ───────────────────
+interface IStorageService <<interface>> {
+  + UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+  + CreateDirectoryAsync(folderPath : string) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+' ── Concrete Implementors ──────────────────────────────────────
+class StorageServiceProxy {
+  - _inner : IStorageService
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class WebDavStorageService {
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class SftpStorageService {
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class SambaStorageService {
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+StorageServiceProxy ..|> IStorageService : realizes
+WebDavStorageService ..|> IStorageService : realizes
+SftpStorageService ..|> IStorageService : realizes
+SambaStorageService ..|> IStorageService : realizes
+
+' ── Abstraction ────────────────────────────────────────────────
+abstract class AudioLibraryStorage <<abstract>> {
+  # Storage : IStorageService
+  # AudioLibraryStorage(storage : IStorageService)
+  + {abstract} UploadAudioAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<bool>
+}
+
+' ── Refined Abstractions ───────────────────────────────────────
+class FlatAudioLibraryStorage {
+  + UploadAudioAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<bool>
+}
+
+class OrganizedAudioLibraryStorage {
+  - _registry : AudioFormatRegistry
+  + UploadAudioAsync(context : AudioFileContext, cancellationToken : CancellationToken) : Task<bool>
+}
+
+FlatAudioLibraryStorage --|> AudioLibraryStorage
+OrganizedAudioLibraryStorage --|> AudioLibraryStorage
+
+' Bridge link: abstraction holds implementor
+AudioLibraryStorage --> "1" IStorageService : Storage\n«bridge link»
+
+' ── Client ─────────────────────────────────────────────────────
+class SingleAudioUploadCommand {
+  - _audioLibraryStorage : AudioLibraryStorage
+  + ExecuteAsync(message : Message, user : User) : Task
+}
+
+SingleAudioUploadCommand --> AudioLibraryStorage : uses
+
+note left of AudioLibraryStorage
+  **Abstraction hierarchy**
+  Defines HOW files are organized:
+  flat root folder vs. format subfolders.
+  Varies independently from storage backend.
+end note
+
+note right of IStorageService
+  **Implementor hierarchy**
+  Defines WHERE files are stored:
+  WebDAV, SFTP, or Samba.
+  Varies independently from organization.
+end note
+
+note bottom of FlatAudioLibraryStorage
+  All files → root folder
+  Remote name = original file name
+end note
+
+note bottom of OrganizedAudioLibraryStorage
+  Files → format subfolder
+  e.g. FLAC/, WAV/, ALAC/
+  (resolved via AudioFormatRegistry flyweight)
+end note
+
+footer Bridge · GoF Structural · NurFlac
+
+@enduml

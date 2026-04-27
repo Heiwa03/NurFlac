@@ -27,40 +27,28 @@ public class TestUploadCommand : AdminOnlyCommand
 
     protected override async Task ExecuteAdminAsync(Message message, User user)
     {
-        await _botClient.SendMessage(message.Chat.Id, "Testing WebDAV connection...");
+        await _botClient.SendMessage(message.Chat.Id, "Running storage diagnostics...");
 
-        var connected = await _storageService.CheckConnectionAsync();
-        if (!connected)
+        var canConnect = await _storageService.CheckConnectionAsync();
+        if (!canConnect)
         {
-            await _botClient.SendMessage(message.Chat.Id, "WebDAV connection failed.");
+            await _botClient.SendMessage(message.Chat.Id, "Could not connect to storage backend.");
             return;
         }
 
-        // Create a small test file
+        await _botClient.SendMessage(message.Chat.Id, "Storage connection OK.");
+
         var tempFile = Path.GetTempFileName();
-        await File.WriteAllTextAsync(tempFile, $"NurFlac upload test at {DateTimeOffset.Now}");
+        await File.WriteAllTextAsync(tempFile, "dummy content for testing");
 
         try
         {
-            var duplicateCheck = await _duplicateCheckFacade.CheckAsync(tempFile);
-            if (duplicateCheck.IsDuplicate)
-            {
-                await _botClient.SendMessage(
-                    message.Chat.Id,
-                    $"Duplicate detected before upload. Fingerprint source: {duplicateCheck.Fingerprint.ProviderName}");
-                return;
-            }
-
-            var uploaded = await _storageService.UploadFileAsync(tempFile, "nurflac-test.txt", "");
+            var uploaded = await _storageService.UploadFileAsync(tempFile, "test-upload.txt", string.Empty);
 
             if (uploaded)
-            {
-                await _duplicateCheckFacade.RegisterUploadedAsync(duplicateCheck, "nurflac-test.txt", user.TelegramId);
-            }
-
-            await _botClient.SendMessage(message.Chat.Id,
-                uploaded ? "Upload successful! Check your WebDAV server for 'nurflac-test.txt'."
-                         : "Upload failed. Check server logs.");
+                await _botClient.SendMessage(message.Chat.Id, "Test file uploaded successfully.");
+            else
+                await _botClient.SendMessage(message.Chat.Id, "Upload failed.");
         }
         finally
         {

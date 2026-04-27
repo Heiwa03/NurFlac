@@ -1,0 +1,71 @@
+@startuml Adapter
+
+title Adapter Pattern — ExternalFingerprintApiAdapter
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Target interface (what the client expects) ─────────────────
+interface IAudioFingerprintProvider <<interface>> {
+  + CreateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<AudioFingerprint>
+}
+
+' ── Adaptee interface (the external contract) ──────────────────
+interface IExternalFingerprintApi <<interface>> {
+  + GenerateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<string>
+}
+
+' ── Adaptee implementation ─────────────────────────────────────
+class ExternalFingerprintHttpApi {
+  + GenerateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<string>
+}
+
+' ── Adapter (Object Adapter via composition) ───────────────────
+class ExternalFingerprintApiAdapter {
+  - _externalApi : IExternalFingerprintApi
+  + ExternalFingerprintApiAdapter(externalApi : IExternalFingerprintApi)
+  + CreateFingerprintAsync(filePath : string, cancellationToken : CancellationToken) : Task<AudioFingerprint>
+}
+
+' ── Supporting types ───────────────────────────────────────────
+class AudioFingerprint <<record>> {
+  + Value : string
+  + ProviderName : string
+}
+
+' ── Client ─────────────────────────────────────────────────────
+class DuplicateCheckFacade {
+  - _fingerprintProviders : IReadOnlyList<IAudioFingerprintProvider>
+}
+
+' Relationships
+ExternalFingerprintHttpApi ..|> IExternalFingerprintApi : realizes
+
+ExternalFingerprintApiAdapter ..|> IAudioFingerprintProvider : realizes
+ExternalFingerprintApiAdapter --> IExternalFingerprintApi : _externalApi\n(wraps adaptee)
+
+ExternalFingerprintApiAdapter ..> AudioFingerprint : «creates»
+
+DuplicateCheckFacade --> IAudioFingerprintProvider : uses target
+
+note top of ExternalFingerprintApiAdapter
+  Adapter (Object Adapter)
+  Translates the external API's
+  Task<string> result into
+  Task<AudioFingerprint> to satisfy
+  the Target interface
+end note
+
+note right of IExternalFingerprintApi
+  Adaptee interface
+  (incompatible signature)
+end note
+
+note left of IAudioFingerprintProvider
+  Target interface
+  (expected by client)
+end note
+
+footer Adapter (Object Adapter) · GoF Structural · NurFlac
+
+@enduml

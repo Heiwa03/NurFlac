@@ -1,0 +1,129 @@
+@startuml AbstractFactory
+
+title Abstract Factory Pattern — Storage Provider Family
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam packageStyle rectangle
+
+' ── Abstract Products ──────────────────────────────────────────
+interface IFileUploader <<interface>> {
+  + UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+}
+
+interface IDirectoryManager <<interface>> {
+  + CreateDirectoryAsync(folderPath : string) : Task<bool>
+}
+
+interface IStorageDiagnostics <<interface>> {
+  + CheckConnectionAsync() : Task<bool>
+}
+
+interface IStorageService <<interface>> {
+}
+
+abstract class StorageService <<abstract>> {
+  + {abstract} UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+  + {abstract} CreateDirectoryAsync(folderPath : string) : Task<bool>
+  + {abstract} CheckConnectionAsync() : Task<bool>
+}
+
+' IStorageService aggregates the three capability interfaces
+IStorageService --|> IFileUploader
+IStorageService --|> IDirectoryManager
+IStorageService --|> IStorageDiagnostics
+
+' StorageService realizes IStorageService
+StorageService ..|> IStorageService : realizes
+
+' ── Concrete Products ──────────────────────────────────────────
+class WebDavStorageService {
+  - _baseUrl : string
+  - _client : WebDavClient
+  + UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+  + CreateDirectoryAsync(folderPath : string) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class SftpStorageService {
+  - _host : string
+  - _username : string
+  + UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+  + CreateDirectoryAsync(folderPath : string) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class SambaStorageService {
+  - _sharePath : string
+  + UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+  + CreateDirectoryAsync(folderPath : string) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+WebDavStorageService --|> StorageService
+SftpStorageService --|> StorageService
+SambaStorageService --|> StorageService
+
+' ── Abstract Factory ───────────────────────────────────────────
+interface IStorageServiceFactory <<interface>> {
+  + CreateFileUploader() : IFileUploader
+  + CreateDirectoryManager() : IDirectoryManager
+  + CreateDiagnostics() : IStorageDiagnostics
+  + CreateStorageService() : IStorageService
+}
+
+' ── Concrete Factories ─────────────────────────────────────────
+class WebDavStorageFactory {
+  - _baseUrl : string
+  - _username : string
+  - _password : string
+  - _loggerFactory : ILoggerFactory
+  + CreateFileUploader() : IFileUploader
+  + CreateDirectoryManager() : IDirectoryManager
+  + CreateDiagnostics() : IStorageDiagnostics
+  + CreateStorageService() : IStorageService
+  - CreateService() : WebDavStorageService
+}
+
+class SftpStorageFactory {
+  - _host : string
+  - _username : string
+  + CreateFileUploader() : IFileUploader
+  + CreateDirectoryManager() : IDirectoryManager
+  + CreateDiagnostics() : IStorageDiagnostics
+  + CreateStorageService() : IStorageService
+  - CreateService() : SftpStorageService
+}
+
+class SambaStorageFactory {
+  - _sharePath : string
+  + CreateFileUploader() : IFileUploader
+  + CreateDirectoryManager() : IDirectoryManager
+  + CreateDiagnostics() : IStorageDiagnostics
+  + CreateStorageService() : IStorageService
+  - CreateService() : SambaStorageService
+}
+
+WebDavStorageFactory ..|> IStorageServiceFactory : realizes
+SftpStorageFactory ..|> IStorageServiceFactory : realizes
+SambaStorageFactory ..|> IStorageServiceFactory : realizes
+
+' Factory → Product creation dependencies
+WebDavStorageFactory ..> WebDavStorageService : «creates»
+SftpStorageFactory ..> SftpStorageService : «creates»
+SambaStorageFactory ..> SambaStorageService : «creates»
+
+note top of IStorageServiceFactory
+  Abstract Factory
+  Produces a family of
+  related storage objects
+end note
+
+note right of IStorageService
+  Aggregate Abstract Product
+  Combines all capability interfaces
+end note
+
+footer Abstract Factory · GoF Creational · NurFlac
+
+@enduml
