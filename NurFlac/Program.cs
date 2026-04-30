@@ -1,3 +1,4 @@
+using NurFlac.Handlers;
 using NurFlac.Extensions;
 using NurFlac.Entry;
 
@@ -15,6 +16,7 @@ builder.Services
 
 // Entry point
 builder.Services.AddHostedService<TelegramBotWorker>();
+builder.Services.AddHostedService<UploadProcessorService>();
 
 var host = builder.Build();
 host.Run();

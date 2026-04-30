@@ -8,16 +8,16 @@ namespace NurFlac.Entry;
 public class UpdateHandler
 {
     private readonly CommandRouter _commandRouter;
-    private readonly SingleAudioUploadCommand _audioUploadCommand;
+    private readonly IUploadSessionQueue _uploadQueue;
     private readonly ILogger<UpdateHandler> _logger;
 
     public UpdateHandler(
         CommandRouter commandRouter,
-        SingleAudioUploadCommand audioUploadCommand,
+        IUploadSessionQueue uploadQueue,
         ILogger<UpdateHandler> logger)
     {
         _commandRouter = commandRouter;
-        _audioUploadCommand = audioUploadCommand;
+        _uploadQueue = uploadQueue;
         _logger = logger;
     }
 
@@ -28,12 +28,12 @@ public class UpdateHandler
 
         var telegramId = message.From?.Id ?? 0;
 
-        // Audio or document file message → audio upload pipeline
+        // Audio or document file message → Queue for processing
         if (message.Audio is not null || message.Document is not null)
         {
-            _logger.LogInformation("Received audio upload from {UserId}", telegramId);
-            var user = new NurFlacUser { TelegramId = telegramId };
-            await _audioUploadCommand.ExecuteAsync(message, user);
+            _logger.LogInformation("Received audio upload from {UserId}. Queuing...", telegramId);
+            await _uploadQueue.EnqueueAsync(message, telegramId);
+            await botClient.SendMessage(message.Chat.Id, "File received and queued for processing.");
             return;
         }
 
