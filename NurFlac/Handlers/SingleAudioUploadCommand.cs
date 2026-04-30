@@ -2,6 +2,7 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using NurFlac.Storage;
 using NurFlac.Validation;
+using NurFlac.Handlers.Models;
 using User = NurFlac.UserManagement.Entities.User;
 
 namespace NurFlac.Handlers;
@@ -12,6 +13,7 @@ public class SingleAudioUploadCommand : ICommand
     private readonly AudioLibraryStorage _audioLibraryStorage;
     private readonly ILosslessAudioValidator _validator;
     private readonly ILogger<SingleAudioUploadCommand> _logger;
+    private readonly IUploadSessionCaretaker _caretaker;
     private readonly string _botToken;
     private readonly string? _localPath;
     private readonly string? _nginxUrl;
@@ -21,12 +23,14 @@ public class SingleAudioUploadCommand : ICommand
         AudioLibraryStorage audioLibraryStorage,
         ILosslessAudioValidator validator,
         ILogger<SingleAudioUploadCommand> logger,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IUploadSessionCaretaker caretaker)
     {
         _botClient = botClient;
         _audioLibraryStorage = audioLibraryStorage;
         _validator = validator;
         _logger = logger;
+        _caretaker = caretaker;
         _botToken = configuration["TelegramBot:Token"] ?? string.Empty;
         _localPath = configuration["TelegramBot:LocalApi:LocalPath"];
         _nginxUrl = configuration["TelegramBot:LocalApi:NginxUrl"];
@@ -55,100 +59,117 @@ public class SingleAudioUploadCommand : ICommand
             return;
         }
 
-        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        var sessionId = Guid.NewGuid().ToString("N");
+        var memento = new UploadSessionMemento(sessionId, user.TelegramId, message.Chat.Id, fileId, fileName, null, UploadStatus.Started, DateTime.UtcNow);
+        await _caretaker.SaveMementoAsync(memento);
+
+        await ProcessUploadAsync(memento, mimeType);
+    }
+
+    public async Task ResumeSessionAsync(UploadSessionMemento memento)
+    {
+        _logger.LogInformation("Resuming upload session {SessionId} for file {FileName}", memento.SessionId, memento.FileName);
+        await _botClient.SendMessage(memento.ChatId, $"Resuming interrupted upload for \"{memento.FileName}\"...");
+        await ProcessUploadAsync(memento, null);
+    }
+
+    private async Task ProcessUploadAsync(UploadSessionMemento memento, string? mimeType)
+    {
+        var extension = Path.GetExtension(memento.FileName).ToLowerInvariant();
         if (string.IsNullOrEmpty(extension) && mimeType is not null)
             extension = MimeToExtension(mimeType);
 
-        var context = new AudioFileContext(fileName, extension, mimeType, fileId);
-
-        // Step 1 + Step 2: extension and MIME check — no download required
-        var preCheck = await _validator.ValidateAsync(context);
-        if (!preCheck.IsValid)
+        var context = new AudioFileContext(memento.FileName, extension, mimeType, memento.FileId);
+        
+        if (memento.Status == UploadStatus.Started)
         {
-            await _botClient.SendMessage(message.Chat.Id, $"File rejected: {preCheck.RejectionReason}");
-            return;
-        }
-
-        await _botClient.SendMessage(message.Chat.Id, "Format check passed. Downloading for analysis...");
-
-        var tempPath = Path.Combine(Path.GetTempPath(), $"nurflac_{Guid.NewGuid():N}{extension}");
-        try
-        {
-            var tgFile = await _botClient.GetFile(fileId);
-            await using (var fs = File.OpenWrite(tempPath))
-                await DownloadToStreamAsync(tgFile.FilePath!, fs);
-
-            // Set local path so Step 3 (spectral) can execute
-            context.LocalFilePath = tempPath;
-
-            var fullCheck = await _validator.ValidateAsync(context);
-            if (!fullCheck.IsValid)
+            var preCheck = await _validator.ValidateAsync(context);
+            if (!preCheck.IsValid)
             {
-                await _botClient.SendMessage(message.Chat.Id, $"File rejected: {fullCheck.RejectionReason}");
+                await _botClient.SendMessage(memento.ChatId, $"File rejected: {preCheck.RejectionReason}");
+                await _caretaker.RemoveMementoAsync(memento.SessionId);
                 return;
             }
 
-            var uploaded = await _audioLibraryStorage.UploadAudioAsync(context);
-            if (uploaded)
-                await _botClient.SendMessage(message.Chat.Id, $"\"{fileName}\" accepted and uploaded to the library.");
-            else
-                await _botClient.SendMessage(message.Chat.Id, "Upload to storage failed. Please try again.");
+            await _botClient.SendMessage(memento.ChatId, "Format check passed. Downloading for analysis...");
+
+            var tempPath = Path.Combine(Path.GetTempPath(), $"nurflac_{memento.SessionId}{extension}");
+            try
+            {
+                var tgFile = await _botClient.GetFile(memento.FileId);
+                await using (var fs = File.OpenWrite(tempPath))
+                    await DownloadToStreamAsync(tgFile.FilePath!, fs);
+
+                memento = memento with { LocalFilePath = tempPath, Status = UploadStatus.Downloaded };
+                await _caretaker.SaveMementoAsync(memento);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Download failed for {FileName}", memento.FileName);
+                await _botClient.SendMessage(memento.ChatId, "Download failed. Will retry later.");
+                return;
+            }
         }
-        catch (Exception ex)
+
+        if (memento.Status == UploadStatus.Downloaded || memento.Status == UploadStatus.Validated)
         {
-            _logger.LogError(ex, "Audio upload failed for {FileName}", fileName);
-            await _botClient.SendMessage(message.Chat.Id, "An error occurred while processing your file.");
-        }
-        finally
-        {
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
+            context.LocalFilePath = memento.LocalFilePath;
+            
+            if (memento.Status == UploadStatus.Downloaded)
+            {
+                var fullCheck = await _validator.ValidateAsync(context);
+                if (!fullCheck.IsValid)
+                {
+                    await _botClient.SendMessage(memento.ChatId, $"File rejected: {fullCheck.RejectionReason}");
+                    if (File.Exists(memento.LocalFilePath)) File.Delete(memento.LocalFilePath);
+                    await _caretaker.RemoveMementoAsync(memento.SessionId);
+                    return;
+                }
+                
+                memento = memento with { Status = UploadStatus.Validated };
+                await _caretaker.SaveMementoAsync(memento);
+            }
+
+            try
+            {
+                var uploaded = await _audioLibraryStorage.UploadAudioAsync(context);
+                if (uploaded)
+                {
+                    await _botClient.SendMessage(memento.ChatId, $"\"{memento.FileName}\" accepted and uploaded to the library.");
+                    await _caretaker.RemoveMementoAsync(memento.SessionId);
+                }
+                else
+                {
+                    await _botClient.SendMessage(memento.ChatId, "Upload to storage failed. Will retry later.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Upload failed for {FileName}", memento.FileName);
+                await _botClient.SendMessage(memento.ChatId, "Upload failed. Will retry later.");
+            }
+            finally
+            {
+                if (memento.Status == UploadStatus.Completed && File.Exists(memento.LocalFilePath))
+                    File.Delete(memento.LocalFilePath);
+            }
         }
     }
 
-    // Add this at the class level if you aren't injecting HttpClient via DI
     private static readonly HttpClient _httpClient = new HttpClient();
 
     private async Task DownloadToStreamAsync(string filePath, Stream destination)
     {
-        // 1. Check if the filePath is an absolute path from the local Telegram server
         if (!string.IsNullOrEmpty(_localPath) && !string.IsNullOrEmpty(_nginxUrl) && filePath.StartsWith(_localPath))
         {
-            // 2. Use configured paths to create the final download URL
             string downloadUrl = filePath.Replace(_localPath, _nginxUrl);
-
             _logger.LogInformation("Local mode Nginx download: {Url}", downloadUrl);
-
-            // 3. Download directly from Nginx, bypassing the Telegram library entirely
             using var responseStream = await _httpClient.GetStreamAsync(downloadUrl);
             await responseStream.CopyToAsync(destination);
             return;
         }
-
-        // Fallback: If it's a standard relative path (non-local mode), use the bot client
         await _botClient.DownloadFile(filePath, destination);
     }
-    /*
-    // In local server mode (TELEGRAM_LOCAL=1), getFile returns an absolute path like:
-    //   /var/lib/telegram-bot-api/{token}/{relative_path}
-    // DownloadFile builds: {baseUrl}/file/bot{token}/{relative_path} — so we just need
-    // to strip the leading work-dir+token prefix to recover the relative path.
-    private async Task DownloadToStreamAsync(string filePath, Stream destination)
-    {
-        if (filePath.StartsWith('/') && !string.IsNullOrEmpty(_botToken))
-        {
-            var marker = $"/{_botToken}/";
-            var idx = filePath.IndexOf(marker, StringComparison.Ordinal);
-            if (idx >= 0)
-            {
-                var relativePath = filePath[(idx + marker.Length)..];
-                _logger.LogInformation("Local mode download: relative path = {RelativePath}", relativePath);
-                await _botClient.DownloadFile(relativePath, destination);
-                return;
-            }
-        }
-        await _botClient.DownloadFile(filePath, destination);
-    }*/
 
     private static string MimeToExtension(string mimeType) => mimeType switch
     {

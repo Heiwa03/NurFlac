@@ -17,6 +17,8 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddTelegramBot(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddSingleton<IUploadSessionCaretaker, SqliteUploadSessionCaretaker>();
+
         var botToken = configuration["TelegramBot:Token"]
             ?? throw new InvalidOperationException("TelegramBot:Token is not configured.");
 
