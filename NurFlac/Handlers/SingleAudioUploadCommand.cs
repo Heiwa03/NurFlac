@@ -102,6 +102,33 @@ public class SingleAudioUploadCommand : ICommand
         }
     }
 
+    // Add this at the class level if you aren't injecting HttpClient via DI
+    private static readonly HttpClient _httpClient = new HttpClient();
+
+    private async Task DownloadToStreamAsync(string filePath, Stream destination)
+    {
+        // 1. Check if the filePath is an absolute path from the local Telegram server
+        if (filePath.StartsWith("/var/lib/telegram-bot-api/"))
+        {
+            // 2. Define the path we want to strip and the URL we want to replace it with
+            string localBasePath = "/var/lib/telegram-bot-api/";
+            string nginxBaseUrl = "http://100.91.112.145:8082/";
+
+            // 3. Strip the path and create the final download URL
+            string downloadUrl = filePath.Replace(localBasePath, nginxBaseUrl);
+
+            _logger.LogInformation("Local mode Nginx download: {Url}", downloadUrl);
+
+            // 4. Download directly from Nginx, bypassing the Telegram library entirely
+            using var responseStream = await _httpClient.GetStreamAsync(downloadUrl);
+            await responseStream.CopyToAsync(destination);
+            return;
+        }
+
+        // Fallback: If it's a standard relative path (non-local mode), use the bot client
+        await _botClient.DownloadFile(filePath, destination);
+    }
+    /*
     // In local server mode (TELEGRAM_LOCAL=1), getFile returns an absolute path like:
     //   /var/lib/telegram-bot-api/{token}/{relative_path}
     // DownloadFile builds: {baseUrl}/file/bot{token}/{relative_path} — so we just need
@@ -121,7 +148,7 @@ public class SingleAudioUploadCommand : ICommand
             }
         }
         await _botClient.DownloadFile(filePath, destination);
-    }
+    }*/
 
     private static string MimeToExtension(string mimeType) => mimeType switch
     {
