@@ -27,10 +27,7 @@ enum UploadStatus {
 
 ' ── Originator ────────────────────────────────────────────────
 class SingleAudioUploadCommand {
-  - _caretaker : IUploadSessionCaretaker
-  + ExecuteAsync(message : Message, user : User) : Task
   + ResumeSessionAsync(memento : UploadSessionMemento) : Task
-  - ProcessUploadAsync(memento : UploadSessionMemento, ...) : Task
 }
 
 ' ── Caretaker ─────────────────────────────────────────────────
@@ -41,59 +38,48 @@ interface IUploadSessionCaretaker <<interface>> {
 }
 
 class SqliteUploadSessionCaretaker {
-  - _connectionString : string
   + SaveMementoAsync(...) : Task
   + GetPendingSessionsAsync(...) : Task
-  + RemoveMementoAsync(...) : Task
 }
 
-' ── Client (Recovery Trigger) ─────────────────────────────────
-class TelegramBotWorker {
+' ── Caretakers & Consumers ────────────────────────────────────
+class UploadSessionQueue {
   - _caretaker : IUploadSessionCaretaker
+  + EnqueueAsync(...) : Task
+}
+
+class UploadProcessorService {
   - _uploadCommand : SingleAudioUploadCommand
-  # ExecuteAsync(stoppingToken : CancellationToken) : Task
+  # ExecuteAsync(...) : Task
 }
 
 ' Relationships
 UploadSessionMemento +-- UploadStatus
 
 ' Originator creates and consumes Mementos
-SingleAudioUploadCommand ..> UploadSessionMemento : «creates/consumes»
+SingleAudioUploadCommand ..> UploadSessionMemento : «restores state from»
+UploadSessionQueue ..> UploadSessionMemento : «captures state into»
 
 ' Caretaker manages Mementos
-SqliteUploadSessionCaretaker ..|> IUploadSessionCaretaker : realizes
+SqliteUploadSessionCaretaker ..|> IUploadSessionCaretaker
 IUploadSessionCaretaker --> "0..*" UploadSessionMemento : manages
 
-' Originator uses Caretaker to persist its state
-SingleAudioUploadCommand --> IUploadSessionCaretaker : _caretaker
-
-' Recovery trigger uses Caretaker to find lost Mementos
-TelegramBotWorker --> IUploadSessionCaretaker : _caretaker
-TelegramBotWorker --> SingleAudioUploadCommand : _uploadCommand
+' Clients using the Caretaker
+UploadSessionQueue --> IUploadSessionCaretaker : "persists new state"
+SingleAudioUploadCommand --> IUploadSessionCaretaker : "updates/removes state"
 
 note right of SingleAudioUploadCommand
   **Originator**
-  Can capture its current 
-  upload state into a Memento 
-  and restore its state 
-  from one.
+  Restores its execution 
+  context from a Memento 
+  to resume an upload.
 end note
 
-note bottom of UploadSessionMemento
-  **Memento**
-  Internal state of the 
-  upload process.
-  Stored externally but 
-  opaque to other objects.
-end note
-
-note bottom of SqliteUploadSessionCaretaker
-  **Caretaker**
-  Responsible for the 
-  Memento's safe keeping.
-  Never operates on or 
-  examines the contents 
-  of the Memento.
+note bottom of UploadSessionQueue
+  **Caretaker (Producer)**
+  Captures the initial 
+  message state into a 
+  Memento and persists it.
 end note
 
 footer Memento · GoF Behavioral · NurFlac

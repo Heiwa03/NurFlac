@@ -10,7 +10,7 @@ interface ICommand <<interface>> {
   + ExecuteAsync(message : Message, user : User) : Task
 }
 
-' ── Abstract base command (admin guard via Template Method) ────
+' ── Abstract base command ──────────────────────────────────────
 abstract class AdminOnlyCommand <<abstract>> {
   - _botClient : ITelegramBotClient
   - _adminTelegramIds : long[]
@@ -20,107 +20,58 @@ abstract class AdminOnlyCommand <<abstract>> {
 
 ' ── Concrete Commands ──────────────────────────────────────────
 class StartCommand {
-  - _botClient : ITelegramBotClient
-  + ExecuteAsync(message : Message, user : User) : Task
+  + ExecuteAsync(...) : Task
 }
 
 class HelpCommand {
-  - _botClient : ITelegramBotClient
-  - _serviceProvider : IServiceProvider
-  + ExecuteAsync(message : Message, user : User) : Task
+  + ExecuteAsync(...) : Task
 }
 
-class SingleAudioUploadCommand {
-  - _audioProcessor : IAudioProcessor
-  - _storageService : IStorageService
-  + ExecuteAsync(message : Message, user : User) : Task
+class FormatsCommand {
+  + ExecuteAsync(...) : Task
 }
 
 class TestUploadCommand {
-  - _botClient : ITelegramBotClient
-  - _storageService : IStorageService
-  - _duplicateCheckFacade : IDuplicateCheckFacade
-  # ExecuteAdminAsync(message : Message, user : User) : Task
+  # ExecuteAdminAsync(...) : Task
 }
 
-' ── Command Registry ───────────────────────────────────────────
-class CommandRegistration {
-  + Name : string
-  + Aliases : string[]
-  + Category : string
-  + Handler : ICommand
+' Note: SingleAudioUploadCommand has moved to a session-based 
+' processing model, but still implements ICommand for consistency.
+class SingleAudioUploadCommand {
+  + ResumeSessionAsync(memento : UploadSessionMemento) : Task
 }
 
-interface ICommandCatalog <<interface>> {
-  + TryResolve(rawCommandKey : string, registration : CommandRegistration) : bool
-  + GetAll() : IReadOnlyCollection<CommandRegistration>
-}
-
-class CommandCatalog {
-  - _index : Dictionary<string, CommandRegistration>
-  - _all : IReadOnlyCollection<CommandRegistration>
-  + TryResolve(rawCommandKey : string, registration : CommandRegistration) : bool
-  + GetAll() : IReadOnlyCollection<CommandRegistration>
-}
-
-' ── Invoker ────────────────────────────────────────────────────
+' ── Invoker & Router ───────────────────────────────────────────
 class CommandRouter {
   - _catalog : ICommandCatalog
-  - _tracker : ICommandExecutionTracker
   + RouteMessageAsync(message : Message) : Task
 }
 
-' ── Receiver context ───────────────────────────────────────────
-class User {
-  + Id : Guid
-  + TelegramId : long
-  + Status : UserStatus
-  + StrikeCount : int
+class UpdateHandler {
+  - _commandRouter : CommandRouter
+  - _uploadQueue : IUploadSessionQueue
+  + HandleUpdateAsync(...) : Task
 }
 
-' Realizations
-AdminOnlyCommand ..|> ICommand : realizes
-StartCommand ..|> ICommand : realizes
-HelpCommand ..|> ICommand : realizes
-SingleAudioUploadCommand ..|> ICommand : realizes
-
-' Inheritance from AdminOnlyCommand
+' ── Relationships ──────────────────────────────────────────────
+AdminOnlyCommand ..|> ICommand
+StartCommand ..|> ICommand
+HelpCommand ..|> ICommand
+FormatsCommand ..|> ICommand
 TestUploadCommand --|> AdminOnlyCommand
+SingleAudioUploadCommand ..|> ICommand
 
-' CommandRegistration holds a Command
-CommandRegistration --> "1" ICommand : Handler
+UpdateHandler --> CommandRouter : "routes text commands"
+UpdateHandler --> IUploadSessionQueue : "enqueues file uploads"
+CommandRouter ..> ICommand : "invokes"
 
-' Catalog
-CommandCatalog ..|> ICommandCatalog : realizes
-CommandCatalog o--> "0..*" CommandRegistration : _index (by name/alias)
-
-' Invoker
-CommandRouter --> ICommandCatalog : resolves
-CommandRouter ..> ICommand : «invokes»\nExecuteAsync()
-
-' Command receives User
-ICommand ..> User : uses
-
-note top of CommandRouter
-  Invoker
-  Resolves command key from
-  Telegram message text;
-  delegates execution to Handler
+note bottom of UpdateHandler
+  **Dispatcher**
+  Differentiates between text 
+  commands (Command Pattern) 
+  and file uploads (Iterator/Memento 
+  Pipeline).
 end note
 
-note right of ICommand
-  Command interface
-  Encapsulates a Telegram
-  request as an object
-end note
-
-note bottom of CommandCatalog
-  Registry
-  O(1) lookup by name or alias;
-  keys normalized to lowercase
-  with leading '/' stripped
-end note
-
-footer Command + Registry · GoF Behavioral · NurFlac
-
+footer Command Pattern · NurFlac
 @enduml

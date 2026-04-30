@@ -7,81 +7,46 @@ skinparam classFontStyle bold
 
 ' ── Repository interfaces ──────────────────────────────────────
 interface IDuplicateFingerprintRepository <<interface>> {
-  + ExistsAsync(fingerprint : string, cancellationToken : CancellationToken) : Task<bool>
-  + AddUploadedEntryAsync(fingerprint : string, fileName : string, providerName : string, uploadedByTelegramId : long, cancellationToken : CancellationToken) : Task
+  + ExistsAsync(...) : Task<bool>
+  + AddUploadedEntryAsync(...) : Task
 }
 
 interface ICommandExecutionTracker <<interface>> {
-  + TrackAsync(commandKey : string, telegramId : long, outcome : CommandExecutionOutcome, durationMs : long, error : string, cancellationToken : CancellationToken) : Task
+  + TrackAsync(...) : Task
+}
+
+interface IUploadSessionCaretaker <<interface>> {
+  + SaveMementoAsync(memento : UploadSessionMemento) : Task
+  + GetPendingSessionsAsync() : Task<IEnumerable<UploadSessionMemento>>
+  + RemoveMementoAsync(sessionId : string) : Task
 }
 
 ' ── Concrete Repositories ──────────────────────────────────────
 class SqliteDuplicateFingerprintRepository {
-  - _connectionString : string
-  - _initLock : SemaphoreSlim
-  - _initialized : bool
-  + SqliteDuplicateFingerprintRepository(dbPath : string)
-  + ExistsAsync(fingerprint : string, cancellationToken : CancellationToken) : Task<bool>
-  + AddUploadedEntryAsync(fingerprint : string, fileName : string, providerName : string, uploadedByTelegramId : long, cancellationToken : CancellationToken) : Task
-  - EnsureInitializedAsync(cancellationToken : CancellationToken) : Task
+  + ExistsAsync(...) : Task<bool>
+  + AddUploadedEntryAsync(...) : Task
 }
 
 class SqliteCommandExecutionTracker {
-  - _connectionString : string
-  - _initLock : SemaphoreSlim
-  - _initialized : bool
-  + SqliteCommandExecutionTracker(dbPath : string)
-  + TrackAsync(commandKey : string, telegramId : long, outcome : CommandExecutionOutcome, durationMs : long, error : string, cancellationToken : CancellationToken) : Task
-  - EnsureInitializedAsync(cancellationToken : CancellationToken) : Task
+  + TrackAsync(...) : Task
 }
 
-' ── Clients ────────────────────────────────────────────────────
-class DuplicateCheckFacade {
-  - _repository : IDuplicateFingerprintRepository
+class SqliteUploadSessionCaretaker {
+  + SaveMementoAsync(...) : Task
+  + GetPendingSessionsAsync(...) : Task
+  + RemoveMementoAsync(...) : Task
 }
 
-class CommandRouter {
-  - _tracker : ICommandExecutionTracker
-}
+' ── Realizations ───────────────────────────────────────────────
+SqliteDuplicateFingerprintRepository ..|> IDuplicateFingerprintRepository
+SqliteCommandExecutionTracker ..|> ICommandExecutionTracker
+SqliteUploadSessionCaretaker ..|> IUploadSessionCaretaker
 
-' ── Enumerations ───────────────────────────────────────────────
-enum CommandExecutionOutcome <<enumeration>> {
-  Success
-  UnknownCommand
-  Failed
-}
-
-' Realizations
-SqliteDuplicateFingerprintRepository ..|> IDuplicateFingerprintRepository : realizes
-SqliteCommandExecutionTracker ..|> ICommandExecutionTracker : realizes
-
-' Client dependencies (depend on abstractions, not concretions)
-DuplicateCheckFacade --> IDuplicateFingerprintRepository : _repository
-CommandRouter --> ICommandExecutionTracker : _tracker
-
-SqliteCommandExecutionTracker ..> CommandExecutionOutcome : uses
-
-note top of IDuplicateFingerprintRepository
-  Repository
-  Abstracts all SQLite access for
-  uploaded audio fingerprints.
-  Clients depend only on the interface.
+note right of IUploadSessionCaretaker
+  **New Repository**
+  Added to support the Memento 
+  pattern for upload recovery.
 end note
 
-note top of ICommandExecutionTracker
-  Repository
-  Abstracts all SQLite access for
-  command execution audit log.
-  Clients depend only on the interface.
-end note
-
-note right of SqliteDuplicateFingerprintRepository
-  Concrete Repository
-  SQLite-backed; uses SemaphoreSlim
-  double-check pattern for lazy
-  schema initialization
-end note
-
-footer Repository · Domain-Driven Design · NurFlac
-
+footer Repository Pattern · NurFlac
 @enduml

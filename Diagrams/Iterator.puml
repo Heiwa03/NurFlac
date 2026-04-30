@@ -1,0 +1,97 @@
+@startuml Iterator
+
+title Iterator Pattern — Fair Upload Session Queue
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Iterator ──────────────────────────────────────────────────
+interface IUploadSessionIterator <<interface>> {
+  + MoveNextAsync() : Task<bool>
+  + Current : UploadSessionMemento
+}
+
+class FairUploadSessionIterator {
+  - _caretaker : IUploadSessionCaretaker
+  - _buffer : List<UploadSessionMemento>
+  - _currentIndex : int
+  + MoveNextAsync() : Task<bool>
+  + Current : UploadSessionMemento
+  - RefreshBufferAsync() : Task
+}
+
+' ── Aggregate ─────────────────────────────────────────────────
+interface IUploadSessionQueue <<interface>> {
+  + GetFairIterator() : IUploadSessionIterator
+  + EnqueueAsync(message : Message, telegramId : long) : Task
+  + NotifyChange() : void
+  + WaitForWorkAsync(ct : CancellationToken) : Task
+}
+
+class UploadSessionQueue {
+  - _caretaker : IUploadSessionCaretaker
+  - _signal : SemaphoreSlim
+  + GetFairIterator() : IUploadSessionIterator
+  + EnqueueAsync(...) : Task
+  + NotifyChange() : void
+  + WaitForWorkAsync(...) : Task
+}
+
+' ── Consumer ──────────────────────────────────────────────────
+class UploadProcessorService <<BackgroundService>> {
+  - _queue : IUploadSessionQueue
+  - _uploadCommand : SingleAudioUploadCommand
+  - _concurrencySemaphore : SemaphoreSlim
+  # ExecuteAsync(stoppingToken : CancellationToken) : Task
+}
+
+' ── Client ────────────────────────────────────────────────────
+class UpdateHandler {
+  - _uploadQueue : IUploadSessionQueue
+  + HandleUpdateAsync(...) : Task
+}
+
+' Realizations
+FairUploadSessionIterator ..|> IUploadSessionIterator : realizes
+UploadSessionQueue ..|> IUploadSessionQueue : realizes
+
+' Aggregate produces Iterator
+UploadSessionQueue ..> IUploadSessionIterator : «creates»
+UploadSessionQueue ..> FairUploadSessionIterator : «creates»
+
+' Consumer uses Iterator to traverse Aggregate
+UploadProcessorService --> IUploadSessionQueue : uses aggregate
+UploadProcessorService ..> IUploadSessionIterator : uses iterator
+
+' Client adds to Aggregate
+UpdateHandler --> IUploadSessionQueue : enqueues
+
+note right of FairUploadSessionIterator
+  **Concrete Iterator**
+  Implements Round-Robin 
+  logic by grouping 
+  pending sessions by 
+  User ID to ensure 
+  fairness.
+end note
+
+note bottom of UploadSessionQueue
+  **Concrete Aggregate**
+  Maintains the collection 
+  of mementos via the 
+  Caretaker and provides 
+  the Iterator.
+end note
+
+note left of UploadProcessorService
+  **Consumer**
+  Traverses the queue 
+  using the iterator 
+  and limits concurrency 
+  (max 3 parallel) 
+  using a Semaphore.
+end note
+
+footer Iterator · GoF Behavioral · NurFlac
+
+@enduml
