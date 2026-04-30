@@ -62,10 +62,12 @@ public static class ServiceCollectionExtensions
                     config["Storage:Sftp:Host"]
                         ?? throw new InvalidOperationException("Storage:Sftp:Host is not configured."),
                     config["Storage:Sftp:Username"]
-                        ?? throw new InvalidOperationException("Storage:Sftp:Username is not configured.")),
+                        ?? throw new InvalidOperationException("Storage:Sftp:Username is not configured."),
+                    config["Storage:Sftp:RootPath"]),
                 "samba" => new SambaStorageFactory(
                     config["Storage:Samba:SharePath"]
-                        ?? throw new InvalidOperationException("Storage:Samba:SharePath is not configured.")),
+                        ?? throw new InvalidOperationException("Storage:Samba:SharePath is not configured."),
+                    config["Storage:Samba:RootPath"]),
                 _ => throw new InvalidOperationException($"Unknown storage provider: '{storageProvider}'.")
             };
         });

@@ -13,6 +13,8 @@ public class SingleAudioUploadCommand : ICommand
     private readonly ILosslessAudioValidator _validator;
     private readonly ILogger<SingleAudioUploadCommand> _logger;
     private readonly string _botToken;
+    private readonly string? _localPath;
+    private readonly string? _nginxUrl;
 
     public SingleAudioUploadCommand(
         ITelegramBotClient botClient,
@@ -26,6 +28,8 @@ public class SingleAudioUploadCommand : ICommand
         _validator = validator;
         _logger = logger;
         _botToken = configuration["TelegramBot:Token"] ?? string.Empty;
+        _localPath = configuration["TelegramBot:LocalApi:LocalPath"];
+        _nginxUrl = configuration["TelegramBot:LocalApi:NginxUrl"];
     }
 
     public async Task ExecuteAsync(Message message, User user)
@@ -108,18 +112,14 @@ public class SingleAudioUploadCommand : ICommand
     private async Task DownloadToStreamAsync(string filePath, Stream destination)
     {
         // 1. Check if the filePath is an absolute path from the local Telegram server
-        if (filePath.StartsWith("/var/lib/telegram-bot-api/"))
+        if (!string.IsNullOrEmpty(_localPath) && !string.IsNullOrEmpty(_nginxUrl) && filePath.StartsWith(_localPath))
         {
-            // 2. Define the path we want to strip and the URL we want to replace it with
-            string localBasePath = "/var/lib/telegram-bot-api/";
-            string nginxBaseUrl = "http://100.91.112.145:8082/";
-
-            // 3. Strip the path and create the final download URL
-            string downloadUrl = filePath.Replace(localBasePath, nginxBaseUrl);
+            // 2. Use configured paths to create the final download URL
+            string downloadUrl = filePath.Replace(_localPath, _nginxUrl);
 
             _logger.LogInformation("Local mode Nginx download: {Url}", downloadUrl);
 
-            // 4. Download directly from Nginx, bypassing the Telegram library entirely
+            // 3. Download directly from Nginx, bypassing the Telegram library entirely
             using var responseStream = await _httpClient.GetStreamAsync(downloadUrl);
             await responseStream.CopyToAsync(destination);
             return;

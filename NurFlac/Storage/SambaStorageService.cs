@@ -4,15 +4,15 @@ namespace NurFlac.Storage;
 
 public class SambaStorageService : StorageService
 {
-    private static readonly string BaseRoot = Path.Combine(Path.GetTempPath(), "NurFlac", "Samba");
+    private static readonly string DefaultBaseRoot = Path.Combine(Path.GetTempPath(), "NurFlac", "Samba");
 
     private readonly string _sharePath;
     private readonly string _storageRoot;
 
-    public SambaStorageService(string sharePath)
+    public SambaStorageService(string sharePath, string? rootPath = null)
     {
         _sharePath = sharePath;
-        _storageRoot = ResolveStorageRoot(sharePath);
+        _storageRoot = ResolveStorageRoot(sharePath, rootPath);
     }
 
     public override Task<bool> CreateDirectoryAsync(string folderPath)
@@ -85,11 +85,12 @@ public class SambaStorageService : StorageService
             : Path.Combine(_storageRoot, normalized);
     }
 
-    private static string ResolveStorageRoot(string sharePath)
+    private static string ResolveStorageRoot(string sharePath, string? rootPath = null)
     {
         if (string.IsNullOrWhiteSpace(sharePath))
         {
-            return Path.Combine(BaseRoot, "unknown-share");
+            var baseRoot = string.IsNullOrWhiteSpace(rootPath) ? DefaultBaseRoot : rootPath;
+            return Path.Combine(baseRoot, "unknown-share");
         }
 
         if (Path.IsPathRooted(sharePath) && Directory.Exists(sharePath))
@@ -97,8 +98,9 @@ public class SambaStorageService : StorageService
             return sharePath;
         }
 
+        var baseRootForRelative = string.IsNullOrWhiteSpace(rootPath) ? DefaultBaseRoot : rootPath;
         var safeShare = SanitizePathSegment(sharePath.Replace("\\", "/").Replace('/', '_'));
-        return Path.Combine(BaseRoot, safeShare);
+        return Path.Combine(baseRootForRelative, safeShare);
     }
 
     private static string SanitizePathSegment(string value)

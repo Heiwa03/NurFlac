@@ -4,20 +4,21 @@ namespace NurFlac.Storage;
 
 public class SftpStorageService : StorageService
 {
-    private static readonly string BaseRoot = Path.Combine(Path.GetTempPath(), "NurFlac", "Sftp");
+    private static readonly string DefaultBaseRoot = Path.Combine(Path.GetTempPath(), "NurFlac", "Sftp");
 
     private readonly string _host;
     private readonly string _username;
     private readonly string _storageRoot;
 
-    public SftpStorageService(string host, string username)
+    public SftpStorageService(string host, string username, string? rootPath = null)
     {
         _host = host;
         _username = username;
 
+        var baseRoot = string.IsNullOrWhiteSpace(rootPath) ? DefaultBaseRoot : rootPath;
         var safeHost = SanitizePathSegment(host);
         var safeUser = SanitizePathSegment(username);
-        _storageRoot = Path.Combine(BaseRoot, safeHost, safeUser);
+        _storageRoot = Path.Combine(baseRoot, safeHost, safeUser);
     }
 
     public override Task<bool> CreateDirectoryAsync(string folderPath)
