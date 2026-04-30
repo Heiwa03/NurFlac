@@ -40,36 +40,19 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddStorageServices(this IServiceCollection services, IConfiguration configuration)
     {
-        var storageProvider = configuration["Storage:Provider"]
+        var storageProviderConfig = configuration["Storage:Provider"]
             ?? throw new InvalidOperationException("Storage:Provider is not configured.");
 
         services.AddSingleton<IStorageServiceFactory>(sp =>
         {
-            var config = configuration;
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var providers = storageProviderConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            
+            var factories = providers.Select(p => CreateFactory(p, configuration, loggerFactory)).ToList();
 
-            return storageProvider.ToLowerInvariant() switch
-            {
-                "webdav" => new WebDavStorageFactory(
-                    config["Storage:WebDav:BaseUrl"]
-                        ?? throw new InvalidOperationException("Storage:WebDav:BaseUrl is not configured."),
-                    config["Storage:WebDav:Username"]
-                        ?? throw new InvalidOperationException("Storage:WebDav:Username is not configured."),
-                    config["Storage:WebDav:Password"]
-                        ?? throw new InvalidOperationException("Storage:WebDav:Password is not configured."),
-                    loggerFactory),
-                "sftp" => new SftpStorageFactory(
-                    config["Storage:Sftp:Host"]
-                        ?? throw new InvalidOperationException("Storage:Sftp:Host is not configured."),
-                    config["Storage:Sftp:Username"]
-                        ?? throw new InvalidOperationException("Storage:Sftp:Username is not configured."),
-                    config["Storage:Sftp:RootPath"]),
-                "samba" => new SambaStorageFactory(
-                    config["Storage:Samba:SharePath"]
-                        ?? throw new InvalidOperationException("Storage:Samba:SharePath is not configured."),
-                    config["Storage:Samba:RootPath"]),
-                _ => throw new InvalidOperationException($"Unknown storage provider: '{storageProvider}'.")
-            };
+            return factories.Count == 1 
+                ? factories[0] 
+                : new CompositeStorageFactory(factories);
         });
 
         services.AddSingleton<IStorageService>(sp =>
@@ -90,6 +73,32 @@ public static class ServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    private static IStorageServiceFactory CreateFactory(string provider, IConfiguration config, ILoggerFactory loggerFactory)
+    {
+        return provider.ToLowerInvariant() switch
+        {
+            "webdav" => new WebDavStorageFactory(
+                config["Storage:WebDav:BaseUrl"]
+                    ?? throw new InvalidOperationException("Storage:WebDav:BaseUrl is not configured."),
+                config["Storage:WebDav:Username"]
+                    ?? throw new InvalidOperationException("Storage:WebDav:Username is not configured."),
+                config["Storage:WebDav:Password"]
+                    ?? throw new InvalidOperationException("Storage:WebDav:Password is not configured."),
+                loggerFactory),
+            "sftp" => new SftpStorageFactory(
+                config["Storage:Sftp:Host"]
+                    ?? throw new InvalidOperationException("Storage:Sftp:Host is not configured."),
+                config["Storage:Sftp:Username"]
+                    ?? throw new InvalidOperationException("Storage:Sftp:Username is not configured."),
+                config["Storage:Sftp:RootPath"]),
+            "samba" => new SambaStorageFactory(
+                config["Storage:Samba:SharePath"]
+                    ?? throw new InvalidOperationException("Storage:Samba:SharePath is not configured."),
+                config["Storage:Samba:RootPath"]),
+            _ => throw new InvalidOperationException($"Unknown storage provider: '{provider}'.")
+        };
     }
 
     public static IServiceCollection AddDuplicateChecking(this IServiceCollection services, IConfiguration configuration)

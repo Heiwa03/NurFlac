@@ -1,0 +1,84 @@
+@startuml Composite
+
+title Composite Pattern — Multi-Destination Storage
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+
+' ── Component interface ────────────────────────────────────────
+interface IStorageService <<interface>> {
+  + UploadFileAsync(filePath : string, remoteFileName : string, folderPath : string) : Task<bool>
+  + CreateDirectoryAsync(folderPath : string) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+' ── Composite ──────────────────────────────────────────────────
+class CompositeStorageService {
+  - _children : IEnumerable<IStorageService>
+  + CompositeStorageService(children : IEnumerable<IStorageService>)
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+' ── Leaf implementations ───────────────────────────────────────
+class WebDavStorageService {
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class SftpStorageService {
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+class SambaStorageService {
+  + UploadFileAsync(...) : Task<bool>
+  + CreateDirectoryAsync(...) : Task<bool>
+  + CheckConnectionAsync() : Task<bool>
+}
+
+' ── Factory Composite ──────────────────────────────────────────
+interface IStorageServiceFactory <<interface>> {
+  + CreateStorageService() : IStorageService
+}
+
+class CompositeStorageFactory {
+  - _factories : IEnumerable<IStorageServiceFactory>
+  + CreateStorageService() : IStorageService
+}
+
+' Realizations
+CompositeStorageService ..|> IStorageService : realizes
+WebDavStorageService ..|> IStorageService : realizes
+SftpStorageService ..|> IStorageService : realizes
+SambaStorageService ..|> IStorageService : realizes
+
+' Composite contains many components (Part-Whole)
+CompositeStorageService o--> "0..*" IStorageService : _children
+
+' Factory relationships
+CompositeStorageFactory ..|> IStorageServiceFactory : realizes
+CompositeStorageFactory ..> CompositeStorageService : «creates»
+CompositeStorageFactory o--> "0..*" IStorageServiceFactory : _factories
+
+note top of CompositeStorageService
+  **Composite**
+  Treats a collection of storage services 
+  as if they were a single service.
+  Operations are performed across all
+  children (e.g., mirroring).
+end note
+
+note bottom of CompositeStorageFactory
+  **Composite Factory**
+  Aggregates multiple factories to 
+  build the storage composite based 
+  on configuration.
+end note
+
+footer Composite · GoF Structural · NurFlac
+
+@enduml
