@@ -1,0 +1,14 @@
+@startuml Visitor Pattern
+interface IViolation {
+    + Accept(visitor: IViolationVisitor)
+}
+class FakeLosslessViolation
+class ForbiddenFormatViolation
+interface IViolationVisitor {
+    + Visit(v: FakeLosslessViolation)
+    + Visit(v: ForbiddenFormatViolation)
+}
+IViolation <|.. FakeLosslessViolation
+IViolation <|.. ForbiddenFormatViolation
+IViolationVisitor <|.. PenaltyCalculatorVisitor
+@enduml

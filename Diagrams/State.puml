@@ -1,0 +1,21 @@
+@startuml State Pattern
+interface IUserState {
+    + CanUpload(): bool
+    + GetStatusMessage(): string
+    + ApplyPenalty(score: int)
+}
+class ActiveState
+class BannedState
+class TimedOutState {
+    - _until: DateTime
+}
+IUserState <|.. ActiveState
+IUserState <|.. BannedState
+IUserState <|.. TimedOutState
+
+note bottom of IUserState
+  Used by UpdateHandler (Entry Point)
+  and SingleAudioUploadCommand (Processor)
+  to guard against restricted users.
+end note
+@enduml

@@ -1,0 +1,12 @@
+@startuml Chain of Responsibility Pattern
+abstract class PenaltyHandler {
+    # Successor: PenaltyHandler
+    + {abstract} HandlePenalty(user: User, score: int)
+}
+class StrikeHandler
+class TimeoutHandler
+class BanHandler
+PenaltyHandler <|-- StrikeHandler
+PenaltyHandler <|-- TimeoutHandler
+PenaltyHandler <|-- BanHandler
+@enduml
