@@ -33,7 +33,11 @@ public class FairUploadSessionIterator : IUploadSessionIterator
 
     private async Task RefreshBufferAsync()
     {
-        var allSessions = (await _caretaker.GetPendingSessionsAsync()).ToList();
+        // FILTER: Only fetch sessions that are NOT already in the Processing state (State Pattern)
+        var allSessions = (await _caretaker.GetPendingSessionsAsync())
+            .Where(s => s.Status != UploadStatus.Processing)
+            .ToList();
+
         if (allSessions.Count == 0)
         {
             _buffer = new List<UploadSessionMemento>();
@@ -41,7 +45,6 @@ public class FairUploadSessionIterator : IUploadSessionIterator
         }
 
         // Implementation of Fair Round-Robin Logic:
-        // 1. Group by User
         var groups = allSessions
             .GroupBy(s => s.TelegramId)
             .Select(g => new Queue<UploadSessionMemento>(g.OrderBy(s => s.CreatedAt)))
@@ -49,7 +52,6 @@ public class FairUploadSessionIterator : IUploadSessionIterator
 
         var fairList = new List<UploadSessionMemento>();
         
-        // 2. Interleave sessions from different users
         while (groups.Any(g => g.Count > 0))
         {
             foreach (var group in groups)

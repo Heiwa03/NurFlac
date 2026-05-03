@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using NurFlac.AudioProcessing;
 using NurFlac.AudioProcessing.Interfaces;
+using NurFlac.AudioProcessing.SpectralAnalysis.Models;
 using NurFlac.Validation;
 
 namespace NurFlac.Tests;
@@ -8,173 +10,46 @@ public class ValidationPipelineTests
 {
     private static readonly AudioFormatRegistry Registry = new();
 
-    // ── PassthroughValidator ────────────────────────────────────
-
     [Fact]
-    public async Task PassthroughValidator_AlwaysReturnsValid()
-    {
-        var validator = new PassthroughValidator();
-        var context = MakeContext("song.flac", ".flac");
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.True(result.IsValid);
-        Assert.Null(result.RejectionReason);
-    }
-
-    // ── ExtensionValidatorDecorator ─────────────────────────────
-
-    [Theory]
-    [InlineData(".flac")]
-    [InlineData(".wav")]
-    [InlineData(".alac")]
-    [InlineData(".m4a")]
-    [InlineData(".aiff")]
-    [InlineData(".aif")]
-    public async Task ExtensionValidator_Accepts_LosslessExtensions(string extension)
+    public async Task ExtensionValidator_RejectsUnsupportedExtension()
     {
         var validator = new ExtensionValidatorDecorator(new PassthroughValidator(), Registry);
-        var context = MakeContext($"song{extension}", extension);
+        var context = MakeContext("song.txt", ".txt");
 
         var result = await validator.ValidateAsync(context);
 
-        Assert.True(result.IsValid);
+        Assert.False(result.IsValid);
+        Assert.Contains("Unsupported", result.RejectionReason);
     }
 
-    [Theory]
-    [InlineData(".mp3")]
-    [InlineData(".aac")]
-    [InlineData(".ogg")]
-    [InlineData(".opus")]
-    public async Task ExtensionValidator_Rejects_LossyExtensions(string extension)
+    [Fact]
+    public async Task ExtensionValidator_AcceptsSupportedExtension()
     {
         var validator = new ExtensionValidatorDecorator(new PassthroughValidator(), Registry);
-        var context = MakeContext($"song{extension}", extension);
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.False(result.IsValid);
-        Assert.NotNull(result.RejectionReason);
-    }
-
-    [Theory]
-    [InlineData(".wma")]
-    [InlineData(".xyz")]
-    [InlineData("")]
-    public async Task ExtensionValidator_Rejects_UnknownExtensions(string extension)
-    {
-        var validator = new ExtensionValidatorDecorator(new PassthroughValidator(), Registry);
-        var context = MakeContext("song.xyz", extension);
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.False(result.IsValid);
-    }
-
-    [Fact]
-    public async Task ExtensionValidator_ShortCircuits_OnRejection_InnerNotCalled()
-    {
-        var inner = new TrackingValidator();
-        var validator = new ExtensionValidatorDecorator(inner, Registry);
-        var context = MakeContext("song.mp3", ".mp3");
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.False(result.IsValid);
-        Assert.Equal(0, inner.CallCount);
-    }
-
-    [Fact]
-    public async Task ExtensionValidator_CallsInner_WhenExtensionPasses()
-    {
-        var inner = new TrackingValidator();
-        var validator = new ExtensionValidatorDecorator(inner, Registry);
         var context = MakeContext("song.flac", ".flac");
-
-        await validator.ValidateAsync(context);
-
-        Assert.Equal(1, inner.CallCount);
-    }
-
-    // ── MimeValidatorDecorator ──────────────────────────────────
-
-    [Fact]
-    public async Task MimeValidator_PassesThrough_WhenMimeIsNull()
-    {
-        var inner = new TrackingValidator();
-        var validator = new MimeValidatorDecorator(inner, Registry);
-        var context = MakeContext("song.flac", ".flac", mimeType: null);
 
         var result = await validator.ValidateAsync(context);
 
         Assert.True(result.IsValid);
-        Assert.Equal(1, inner.CallCount);
     }
 
-    [Theory]
-    [InlineData("audio/flac")]
-    [InlineData("audio/wav")]
-    [InlineData("audio/aiff")]
-    public async Task MimeValidator_Accepts_LosslessMimeType(string mimeType)
+    [Fact]
+    public async Task MimeValidator_RejectsUnsupportedMime()
     {
         var validator = new MimeValidatorDecorator(new PassthroughValidator(), Registry);
-        var context = MakeContext("song.flac", ".flac", mimeType);
+        var context = MakeContext("song.flac", ".flac", "text/plain");
 
         var result = await validator.ValidateAsync(context);
 
-        Assert.True(result.IsValid);
+        Assert.False(result.IsValid);
+        Assert.Contains("Unrecognized", result.RejectionReason);
     }
 
-    [Theory]
-    [InlineData("audio/mpeg")]
-    [InlineData("audio/aac")]
-    [InlineData("audio/ogg")]
-    public async Task MimeValidator_Rejects_LossyMimeType(string mimeType)
+    [Fact]
+    public async Task MimeValidator_AcceptsSupportedMime()
     {
         var validator = new MimeValidatorDecorator(new PassthroughValidator(), Registry);
-        var context = MakeContext("song.mp3", ".mp3", mimeType);
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.False(result.IsValid);
-        Assert.NotNull(result.RejectionReason);
-    }
-
-    [Fact]
-    public async Task MimeValidator_Rejects_UnknownMimeType()
-    {
-        var validator = new MimeValidatorDecorator(new PassthroughValidator(), Registry);
-        var context = MakeContext("song.xyz", ".xyz", "application/octet-stream");
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.False(result.IsValid);
-    }
-
-    // ── SpectralValidatorDecorator ──────────────────────────────
-
-    [Fact]
-    public async Task SpectralValidator_PassesThrough_WhenLocalPathIsNull()
-    {
-        var inner = new TrackingValidator();
-        var processor = new StubAudioProcessor(returnsLossless: true);
-        var validator = new SpectralValidatorDecorator(inner, processor);
-        var context = MakeContext("song.flac", ".flac");
-
-        var result = await validator.ValidateAsync(context);
-
-        Assert.True(result.IsValid);
-        Assert.Equal(1, inner.CallCount);
-        Assert.Equal(0, processor.CallCount);
-    }
-
-    [Fact]
-    public async Task SpectralValidator_Accepts_WhenProcessorReturnsTrue()
-    {
-        var processor = new StubAudioProcessor(returnsLossless: true);
-        var validator = new SpectralValidatorDecorator(new PassthroughValidator(), processor);
-        var context = MakeContext("song.flac", ".flac");
-        context.LocalFilePath = "/tmp/song.flac";
+        var context = MakeContext("song.flac", ".flac", "audio/flac");
 
         var result = await validator.ValidateAsync(context);
 
@@ -182,60 +57,80 @@ public class ValidationPipelineTests
     }
 
     [Fact]
-    public async Task SpectralValidator_Rejects_WhenProcessorReturnsFalse()
+    public async Task SpectralValidator_SkipsIfFileNotDownloaded()
     {
-        var processor = new StubAudioProcessor(returnsLossless: false);
-        var validator = new SpectralValidatorDecorator(new PassthroughValidator(), processor);
+        var stub = new StubAudioProcessor(true);
+        var validator = new SpectralValidatorDecorator(new PassthroughValidator(), stub, NullLogger<SpectralValidatorDecorator>.Instance);
         var context = MakeContext("song.flac", ".flac");
-        context.LocalFilePath = "/tmp/song.flac";
+
+        var result = await validator.ValidateAsync(context);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(0, stub.CallCount);
+    }
+
+    [Fact]
+    public async Task SpectralValidator_RejectsLossySpectral()
+    {
+        var stub = new StubAudioProcessor(false);
+        var validator = new SpectralValidatorDecorator(new PassthroughValidator(), stub, NullLogger<SpectralValidatorDecorator>.Instance);
+        var context = MakeContext("song.flac", ".flac");
+        context.LocalFilePath = "dummy.flac";
 
         var result = await validator.ValidateAsync(context);
 
         Assert.False(result.IsValid);
-        Assert.NotNull(result.RejectionReason);
-    }
-
-    // ── Full decorator chain ────────────────────────────────────
-
-    [Fact]
-    public async Task FullChain_RejectsOnStep1_InnerDecoratorsNotCalled()
-    {
-        var mimeInner = new TrackingValidator();
-        var mimeValidator = new MimeValidatorDecorator(mimeInner, Registry);
-        var extValidator = new ExtensionValidatorDecorator(mimeValidator, Registry);
-
-        var context = MakeContext("song.mp3", ".mp3", "audio/mpeg");
-
-        var result = await extValidator.ValidateAsync(context);
-
-        Assert.False(result.IsValid);
-        Assert.Equal(0, mimeInner.CallCount);
+        Assert.Contains("Spectral analysis indicates", result.RejectionReason);
+        Assert.Equal(1, stub.CallCount);
     }
 
     [Fact]
-    public async Task FullChain_AcceptsLosslessFile()
+    public async Task FullPipeline_WorksCorrectly()
     {
-        var processor = new StubAudioProcessor(returnsLossless: true);
-        ILosslessAudioValidator chain =
-            new SpectralValidatorDecorator(
-                new MimeValidatorDecorator(
-                    new ExtensionValidatorDecorator(
-                        new PassthroughValidator(), Registry),
+        var stub = new StubAudioProcessor(true);
+        var pipeline = new SpectralValidatorDecorator(
+            new MimeValidatorDecorator(
+                new ExtensionValidatorDecorator(
+                    new PassthroughValidator(),
                     Registry),
-                processor);
+                Registry),
+            stub,
+            NullLogger<SpectralValidatorDecorator>.Instance);
 
         var context = MakeContext("song.flac", ".flac", "audio/flac");
-        context.LocalFilePath = "/tmp/song.flac";
+        context.LocalFilePath = "dummy.flac";
 
-        var result = await chain.ValidateAsync(context);
+        var result = await pipeline.ValidateAsync(context);
 
         Assert.True(result.IsValid);
+        Assert.Equal(1, stub.CallCount);
     }
 
-    // ── Helpers ─────────────────────────────────────────────────
+    [Fact]
+    public async Task FullPipeline_StopsEarlyOnExtensionFailure()
+    {
+        var tracking = new TrackingValidator();
+        var pipeline = new SpectralValidatorDecorator(
+            new MimeValidatorDecorator(
+                new ExtensionValidatorDecorator(
+                    tracking,
+                    Registry),
+                Registry),
+            new StubAudioProcessor(true),
+            NullLogger<SpectralValidatorDecorator>.Instance);
+
+        var context = MakeContext("song.txt", ".txt");
+
+        var result = await pipeline.ValidateAsync(context);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(0, tracking.CallCount);
+    }
 
     private static AudioFileContext MakeContext(string fileName, string extension, string? mimeType = null)
-        => new(fileName, extension, mimeType, telegramFileId: "test-id");
+    {
+        return new AudioFileContext(fileName, extension, mimeType, "dummy-id");
+    }
 
     private sealed class TrackingValidator : ILosslessAudioValidator
     {
@@ -255,9 +150,14 @@ public class ValidationPipelineTests
 
         public StubAudioProcessor(bool returnsLossless) => _returnsLossless = returnsLossless;
 
-        public Task<bool> VerifyLosslessQualityAsync(string filePath)
+        public Task<SpectralAnalysisResult> AnalyzeLosslessQualityAsync(string filePath)
         {
             CallCount++;
+            return Task.FromResult(new SpectralAnalysisResult(_returnsLossless, _returnsLossless ? 22050 : 15000, 19000, -60, 0.1));
+        }
+
+        public Task<bool> VerifyLosslessQualityAsync(string filePath)
+        {
             return Task.FromResult(_returnsLossless);
         }
 

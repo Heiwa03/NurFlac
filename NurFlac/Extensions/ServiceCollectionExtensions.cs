@@ -138,7 +138,8 @@ public static class ServiceCollectionExtensions
                         new PassthroughValidator(),
                         sp.GetRequiredService<AudioFormatRegistry>()),
                     sp.GetRequiredService<AudioFormatRegistry>()),
-                sp.GetRequiredService<IAudioProcessor>()));
+                sp.GetRequiredService<IAudioProcessor>(),
+                sp.GetRequiredService<ILogger<SpectralValidatorDecorator>>()));
         return services;
     }
 
@@ -149,6 +150,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FormatsCommand>();
         services.AddSingleton<TestUploadCommand>();
         services.AddSingleton<SingleAudioUploadCommand>();
+        services.AddSingleton<ScanCommand>();
+        services.AddSingleton<ModTestCommand>();
         
         services.AddSingleton<IEnumerable<CommandRegistration>>(sp =>
         [
@@ -179,6 +182,20 @@ public static class ServiceCollectionExtensions
                 Aliases = ["tupload"],
                 Category = "Admin",
                 Handler = sp.GetRequiredService<TestUploadCommand>()
+            },
+            new CommandRegistration
+            {
+                Name = "scan",
+                Aliases = ["verify"],
+                Category = "Admin",
+                Handler = sp.GetRequiredService<ScanCommand>()
+            },
+            new CommandRegistration
+            {
+                Name = "modtest",
+                Aliases = ["violation"],
+                Category = "Admin",
+                Handler = sp.GetRequiredService<ModTestCommand>()
             }
         ]);
         

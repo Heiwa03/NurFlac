@@ -2,6 +2,10 @@ using Telegram.Bot;
 using NurFlac.Storage;
 using NurFlac.Validation;
 using NurFlac.Handlers.Models;
+using NurFlac.UserModeration.Mediator;
+using NurFlac.UserModeration.Violations;
+using NurFlac.UserModeration.States;
+using NurFlac.UserManagement;
 using User = NurFlac.UserManagement.Entities.User;
 
 namespace NurFlac.Handlers;
@@ -14,6 +18,8 @@ public class SingleAudioUploadCommand : ICommand
     private readonly ILogger<SingleAudioUploadCommand> _logger;
     private readonly IUploadSessionCaretaker _caretaker;
     private readonly IUploadSessionQueue _queue;
+    private readonly IModerationMediator _moderationMediator;
+    private readonly IUserService _userService;
     private readonly string _botToken;
     private readonly string? _localPath;
     private readonly string? _nginxUrl;
@@ -25,7 +31,9 @@ public class SingleAudioUploadCommand : ICommand
         ILogger<SingleAudioUploadCommand> logger,
         IConfiguration configuration,
         IUploadSessionCaretaker caretaker,
-        IUploadSessionQueue queue)
+        IUploadSessionQueue queue,
+        IModerationMediator moderationMediator,
+        IUserService userService)
     {
         _botClient = botClient;
         _audioLibraryStorage = audioLibraryStorage;
@@ -33,14 +41,13 @@ public class SingleAudioUploadCommand : ICommand
         _logger = logger;
         _caretaker = caretaker;
         _queue = queue;
+        _moderationMediator = moderationMediator;
+        _userService = userService;
         _botToken = configuration["TelegramBot:Token"] ?? string.Empty;
         _localPath = configuration["TelegramBot:LocalApi:LocalPath"];
         _nginxUrl = configuration["TelegramBot:LocalApi:NginxUrl"];
     }
 
-    /// <summary>
-    /// Legacy interface method. For audio, the processor service calls ResumeSessionAsync directly.
-    /// </summary>
     public Task ExecuteAsync(Telegram.Bot.Types.Message message, User user) => Task.CompletedTask;
 
     public async Task ResumeSessionAsync(UploadSessionMemento memento)
@@ -59,15 +66,31 @@ public class SingleAudioUploadCommand : ICommand
 
         var context = new AudioFileContext(memento.FileName, extension, mimeType, memento.FileId);
         
+        var user = await _userService.GetOrCreateUserAsync(memento.TelegramId);
+
+        // STATE PATTERN: Guard check (redundant but safe for background processing)
+        IUserState state = user.Status switch
+        {
+            UserManagement.Entities.UserStatus.TimedOut => new TimedOutState(user.TimeoutUntil ?? DateTime.MinValue),
+            UserManagement.Entities.UserStatus.Blacklisted => new BannedState(),
+            _ => new ActiveState()
+        };
+
+        if (!state.CanUpload())
+        {
+            _logger.LogWarning("Upload task for {UserId} aborted: User is {Status}", memento.TelegramId, user.Status);
+            await _caretaker.RemoveMementoAsync(memento.SessionId);
+            return;
+        }
+
         try 
         {
-            if (memento.Status == UploadStatus.Started)
+            if (memento.Status == UploadStatus.Started || memento.Status == UploadStatus.Processing)
             {
                 var preCheck = await _validator.ValidateAsync(context);
                 if (!preCheck.IsValid)
                 {
-                    await _botClient.SendMessage(memento.ChatId, $"File rejected: {preCheck.RejectionReason}");
-                    await _caretaker.RemoveMementoAsync(memento.SessionId);
+                    await HandleRejectionAsync(memento, user, preCheck);
                     return;
                 }
 
@@ -89,9 +112,8 @@ public class SingleAudioUploadCommand : ICommand
                     var fullCheck = await _validator.ValidateAsync(context);
                     if (!fullCheck.IsValid)
                     {
-                        await _botClient.SendMessage(memento.ChatId, $"File rejected: {fullCheck.RejectionReason}");
                         if (File.Exists(memento.LocalFilePath)) File.Delete(memento.LocalFilePath);
-                        await _caretaker.RemoveMementoAsync(memento.SessionId);
+                        await HandleRejectionAsync(memento, user, fullCheck);
                         return;
                     }
                     
@@ -109,13 +131,43 @@ public class SingleAudioUploadCommand : ICommand
                 else
                 {
                     _logger.LogWarning("Upload failed for session {Id}, will remain in queue.", memento.SessionId);
+                    memento = memento with { Status = UploadStatus.Started };
+                    await _caretaker.SaveMementoAsync(memento);
                 }
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing upload session {Id}", memento.SessionId);
+            memento = memento with { Status = UploadStatus.Started };
+            await _caretaker.SaveMementoAsync(memento);
         }
+    }
+
+    private async Task HandleRejectionAsync(UploadSessionMemento memento, User user, ValidationResult result)
+    {
+        await _botClient.SendMessage(memento.ChatId, $"File rejected: {result.RejectionReason}");
+        
+        IViolation violation = result.RejectionReason?.Contains("spectral", StringComparison.OrdinalIgnoreCase) == true
+            ? new FakeLosslessViolation()
+            : new ForbiddenFormatViolation(Path.GetExtension(memento.FileName));
+
+        _moderationMediator.ProcessViolation(user, violation);
+        
+        await _userService.UpdateUserAsync(user);
+        
+        if (user.Status != UserManagement.Entities.UserStatus.Whitelisted)
+        {
+            IUserState state = user.Status switch
+            {
+                UserManagement.Entities.UserStatus.TimedOut => new TimedOutState(user.TimeoutUntil ?? DateTime.MinValue),
+                UserManagement.Entities.UserStatus.Blacklisted => new BannedState(),
+                _ => new ActiveState()
+            };
+            await _botClient.SendMessage(memento.ChatId, $"⚠️ Warning: {state.GetStatusMessage()} Current strikes: {user.StrikeCount}");
+        }
+
+        await _caretaker.RemoveMementoAsync(memento.SessionId);
     }
 
     private static readonly HttpClient _httpClient = new HttpClient();

@@ -1,77 +1,19 @@
-@startuml Command
-
-title Command Pattern — Telegram Bot Command Dispatch
-
-skinparam classAttributeIconSize 0
-skinparam classFontStyle bold
-
-' ── Command interface ──────────────────────────────────────────
-interface ICommand <<interface>> {
-  + ExecuteAsync(message : Message, user : User) : Task
+@startuml Command Pattern
+interface ICommand {
+    + ExecuteAsync(message: Message, user: User)
 }
+class StartCommand
+class SingleAudioUploadCommand
+class ScanCommand <<Admin>>
+class ModTestCommand <<Admin>>
 
-' ── Abstract base command ──────────────────────────────────────
-abstract class AdminOnlyCommand <<abstract>> {
-  - _botClient : ITelegramBotClient
-  - _adminTelegramIds : long[]
-  + ExecuteAsync(message : Message, user : User) : Task
-  # {abstract} ExecuteAdminAsync(message : Message, user : User) : Task
-}
+ICommand <|.. StartCommand
+ICommand <|.. SingleAudioUploadCommand
+ICommand <|.. ScanCommand
+ICommand <|.. ModTestCommand
 
-' ── Concrete Commands ──────────────────────────────────────────
-class StartCommand {
-  + ExecuteAsync(...) : Task
-}
-
-class HelpCommand {
-  + ExecuteAsync(...) : Task
-}
-
-class FormatsCommand {
-  + ExecuteAsync(...) : Task
-}
-
-class TestUploadCommand {
-  # ExecuteAdminAsync(...) : Task
-}
-
-' Note: SingleAudioUploadCommand has moved to a session-based 
-' processing model, but still implements ICommand for consistency.
-class SingleAudioUploadCommand {
-  + ResumeSessionAsync(memento : UploadSessionMemento) : Task
-}
-
-' ── Invoker & Router ───────────────────────────────────────────
-class CommandRouter {
-  - _catalog : ICommandCatalog
-  + RouteMessageAsync(message : Message) : Task
-}
-
-class UpdateHandler {
-  - _commandRouter : CommandRouter
-  - _uploadQueue : IUploadSessionQueue
-  + HandleUpdateAsync(...) : Task
-}
-
-' ── Relationships ──────────────────────────────────────────────
-AdminOnlyCommand ..|> ICommand
-StartCommand ..|> ICommand
-HelpCommand ..|> ICommand
-FormatsCommand ..|> ICommand
-TestUploadCommand --|> AdminOnlyCommand
-SingleAudioUploadCommand ..|> ICommand
-
-UpdateHandler --> CommandRouter : "routes text commands"
-UpdateHandler --> IUploadSessionQueue : "enqueues file uploads"
-CommandRouter ..> ICommand : "invokes"
-
-note bottom of UpdateHandler
-  **Dispatcher**
-  Differentiates between text 
-  commands (Command Pattern) 
-  and file uploads (Iterator/Memento 
-  Pipeline).
+note bottom of ScanCommand
+  Allows manual triggering of 
+  Spectral Analysis for a specific file.
 end note
-
-footer Command Pattern · NurFlac
 @enduml

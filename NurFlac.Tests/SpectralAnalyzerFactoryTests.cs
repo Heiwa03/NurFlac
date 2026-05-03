@@ -50,6 +50,6 @@ public class SpectralAnalyzerFactoryTests
     {
         var analyzer = _factory.Create("test.wav");
         var result = await analyzer.IsTrueLosslessAsync("test.wav");
-        Assert.True(result); // placeholder decoding returns valid samples
+        Assert.True(result);
     }
 }

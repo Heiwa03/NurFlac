@@ -17,6 +17,7 @@ public record UploadSessionMemento(
 public enum UploadStatus
 {
     Started,
+    Processing,
     Downloaded,
     Validated,
     Completed,

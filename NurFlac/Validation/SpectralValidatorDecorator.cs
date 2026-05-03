@@ -1,32 +1,47 @@
 using NurFlac.AudioProcessing.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace NurFlac.Validation;
 
-/// <summary>
-/// Step 3 decorator — runs spectral analysis to detect lossy-to-lossless transcodes.
-/// Skips if <see cref="AudioFileContext.LocalFilePath"/> is null (file not yet downloaded).
-/// </summary>
 public sealed class SpectralValidatorDecorator : AudioValidatorDecorator
 {
     private readonly IAudioProcessor _audioProcessor;
+    private readonly ILogger<SpectralValidatorDecorator> _logger;
 
-    public SpectralValidatorDecorator(ILosslessAudioValidator inner, IAudioProcessor audioProcessor)
+    public SpectralValidatorDecorator(
+        ILosslessAudioValidator inner, 
+        IAudioProcessor audioProcessor,
+        ILogger<SpectralValidatorDecorator> logger)
         : base(inner)
     {
         _audioProcessor = audioProcessor;
+        _logger = logger;
     }
 
     public override async Task<ValidationResult> ValidateAsync(AudioFileContext context, CancellationToken cancellationToken = default)
     {
+        var innerResult = await Inner.ValidateAsync(context, cancellationToken);
+        if (!innerResult.IsValid)
+            return innerResult;
+
         if (context.LocalFilePath is null)
-            return await Inner.ValidateAsync(context, cancellationToken);
+            return ValidationResult.Valid();
 
-        var isLossless = await _audioProcessor.VerifyLosslessQualityAsync(context.LocalFilePath);
+        _logger.LogInformation("[SPECTRAL] Triggering automated scan for: {FileName}", context.FileName);
+        
+        var result = await _audioProcessor.AnalyzeLosslessQualityAsync(context.LocalFilePath);
 
-        if (!isLossless)
+        _logger.LogInformation("[SPECTRAL] Result for {FileName}: {Status}. Detected Cutoff: {Cutoff}Hz. Energy Ratio: {Ratio:P2}. Note: {Note}", 
+            context.FileName, 
+            result.IsTrueLossless ? "SUCCESS" : "REJECTED", 
+            result.DetectedCutoffHz, 
+            result.HighFreqEnergyRatio,
+            result.AnalysisNote);
+
+        if (!result.IsTrueLossless)
             return ValidationResult.Reject(
-                "Spectral analysis indicates this file is a lossy-to-lossless transcode and cannot be accepted.");
+                $"Spectral analysis indicates this file is a transcode. Detected Cutoff: {result.DetectedCutoffHz}Hz. Energy Ratio: {result.HighFreqEnergyRatio:P2}. {result.AnalysisNote}");
 
-        return await Inner.ValidateAsync(context, cancellationToken);
+        return ValidationResult.Valid();
     }
 }

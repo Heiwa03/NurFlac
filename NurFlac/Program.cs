@@ -12,7 +12,7 @@ builder.Services
     .AddDuplicateChecking(builder.Configuration)
     .AddCommandTracking(builder.Configuration)
     .AddValidationPipeline()
-    .AddTelegramCommands();
+    .AddUserManagement().AddUserModeration().AddTelegramCommands();
 
 // Entry point
 builder.Services.AddHostedService<TelegramBotWorker>();

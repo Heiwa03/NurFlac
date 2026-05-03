@@ -6,16 +6,19 @@ public class UploadProcessorService : BackgroundService
 {
     private readonly IUploadSessionQueue _queue;
     private readonly SingleAudioUploadCommand _uploadCommand;
+    private readonly IUploadSessionCaretaker _caretaker;
     private readonly ILogger<UploadProcessorService> _logger;
     private readonly SemaphoreSlim _concurrencySemaphore = new(3, 3); // Max 3 parallel uploads
 
     public UploadProcessorService(
         IUploadSessionQueue queue,
         SingleAudioUploadCommand uploadCommand,
+        IUploadSessionCaretaker caretaker,
         ILogger<UploadProcessorService> logger)
     {
         _queue = queue;
         _uploadCommand = uploadCommand;
+        _caretaker = caretaker;
         _logger = logger;
     }
 
@@ -30,8 +33,15 @@ public class UploadProcessorService : BackgroundService
             bool foundWork = false;
             while (await iterator.MoveNextAsync())
             {
-                foundWork = true;
                 var session = iterator.Current;
+
+                // ATOMIC-LIKE TRANSITION (State Pattern):
+                // Immediately transition the session to 'Processing' state in the Caretaker
+                // to prevent other iterator refreshes from seeing it as 'Started'.
+                session = session with { Status = UploadStatus.Processing };
+                await _caretaker.SaveMementoAsync(session);
+
+                foundWork = true;
 
                 // Wait for a concurrency slot
                 await _concurrencySemaphore.WaitAsync(stoppingToken);
@@ -56,13 +66,11 @@ public class UploadProcessorService : BackgroundService
 
             if (!foundWork)
             {
-                // Wait for a signal that new work has arrived
                 await _queue.WaitForWorkAsync(stoppingToken);
             }
             else
             {
-                // Brief pause to prevent tight loops if MoveNext returns immediately
-                await Task.Delay(1000, stoppingToken);
+                await Task.Delay(500, stoppingToken);
             }
         }
     }

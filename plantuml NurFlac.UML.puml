@@ -1,4 +1,4 @@
-﻿@startuml NurFlac Class Diagram
+@startuml NurFlac Class Diagram
 ' Styling
 skinparam classAttributeIconSize 0
 skinparam monochrome false
@@ -6,337 +6,93 @@ skinparam shadowing false
 skinparam packageStyle rectangle
 
 ' =============================================================================
-' LEGEND: Implementation status
-' =============================================================================
-legend bottom left
-  |= Tag |= Meaning |
-  | [done] | Implemented |
-  | [stub] | Exists but body throws NotImplementedException |
-  | [todo] | Not yet created (planned in UML) |
-endlegend
-
-' =============================================================================
 ' Package 1 - Entry Point & Routing
 ' =============================================================================
 package "1. Entry Point & Routing" {
-    class Program << (S,#FF7700) static >> {
-        +Main(args: string[]): void
-    }
-
-    interface ITelegramBotClient << external >>
-
-    class TelegramBotWorker {
-        - _botClient: ITelegramBotClient
-        - _updateHandler: UpdateHandler
-        - _logger: ILogger<TelegramBotWorker>
-        + ExecuteAsync(stoppingToken: CancellationToken): Task
-    }
-
-    class UpdateHandler {
-        - _commandRouter: CommandRouter
-        - _logger: ILogger<UpdateHandler>
-        + HandleUpdateAsync(botClient: ITelegramBotClient, update: Update, ct: CancellationToken): Task
-    }
-
-    class CommandRouter {
-        - _commands: Dictionary<string, ICommand>
-        - _logger: ILogger<CommandRouter>
-        + RouteMessageAsync(message: Message): Task
-    }
+    class Program << (S,#FF7700) static >>
+    class TelegramBotWorker <<HostedService>>
+    class UpdateHandler
+    class CommandRouter
+    class UploadProcessorService <<HostedService>>
 }
 
 ' =============================================================================
-' Package 2 - Chat & Command Handlers
+' Package 2 - Chat & Command Handlers (COMMAND PATTERN)
 ' =============================================================================
 package "2. Chat & Command Handlers" {
     interface ICommand {
         + ExecuteAsync(message: Message, user: User): Task
     }
-
-    class StartCommand << [done] >> {
-        - _botClient: ITelegramBotClient
-        + ExecuteAsync(message: Message, user: User): Task
-    }
-
-    class SingleAudioUploadCommand << [stub] >> {
-        - _audioProcessor: IAudioProcessor
-        - _storageService: IStorageService
-        + ExecuteAsync(message: Message, user: User): Task
-    }
-
-    class StartAlbumCommand << [todo] >> {
-        - _sessionManager: ISessionManager
-    }
-
-    class FinishAlbumCommand << [todo] >> {
-        - _sessionManager: ISessionManager
-        - _audioProcessor: IAudioProcessor
-        - _storageService: IStorageService
-    }
-
-    package "Admin Handlers" {
-        class AdminWhitelistCommand << [todo] >>
-        class AdminBlacklistCommand << [todo] >>
-        class AdminStatsCommand << [todo] >>
-    }
+    class SingleAudioUploadCommand
+    class ScanCommand <<Admin Only>>
+    class ModTestCommand <<Admin Only>>
+    
+    ICommand <|.. SingleAudioUploadCommand
+    ICommand <|.. ScanCommand
+    ICommand <|.. ModTestCommand
 }
 
 ' =============================================================================
-' Package 3 - User & Session Management
+' Package 3 - User & Session Management (REPOSITORY, MEMENTO & ITERATOR)
 ' =============================================================================
 package "3. User & Session Management" {
-    interface IUserService {
-        + GetOrCreateUserAsync(telegramId: long): Task<User>
-        + ApplyStrikeAsync(telegramId: long, reason: string): Task
+    package "User Management (REPOSITORY)" {
+        interface IUserService
+        interface IUserRepository
     }
 
-    class UserService << [todo] >>
-
-    interface ISessionManager << [todo] >> {
-        + GetSession(telegramId: long): UserSession
-        + StartAlbumSession(telegramId: long, albumName: string)
-        + AddFileToSession(telegramId: long, fileId: string)
-        + ClearSession(telegramId: long)
-    }
-
-    class InMemorySessionManager << [todo] >> {
-        - _activeSessions: Dictionary<long, UserSession>
-    }
-
-    class UserSession << [todo] >> {
-        + TelegramId: long
-        + IsAlbumMode: bool
-        + CurrentAlbumName: string
-        + PendingFileIds: List<string>
-    }
-
-    interface IUserRepository << [todo] >> {
-        + GetByTelegramIdAsync(telegramId: long): Task<User>
-    }
-
-    class SqliteUserRepository << [todo] >>
-    class BotDbContext << [todo] >>
-
-    class User << [done] >> {
-        + Id: Guid
-        + TelegramId: long
-        + Status: UserStatus
-        + StrikeCount: int
-    }
-
-    enum UserStatus {
-        Pending
-        Whitelisted
-        Blacklisted
-        TimedOut
+    package "Session Management (MEMENTO & ITERATOR)" {
+        class UploadSessionMemento <<Memento>>
+        interface IUploadSessionCaretaker <<Caretaker>>
+        interface IUploadSessionIterator <<Iterator>>
     }
 }
 
 ' =============================================================================
-' Package 4 - Audio Processing & Spectral Analysis  [FACTORY METHOD PATTERN]
+' Package 4 - Audio Processing (FACTORY METHOD, TEMPLATE METHOD, SINGLETON, BUILDER, PROTOTYPE)
 ' =============================================================================
-package "4. Audio Processing & Spectral Analysis" {
-    interface IAudioProcessor << [done] >> {
-        + VerifyLosslessQualityAsync(filePath: string): Task<bool>
-        + ConvertToFlacAsync(inputPath: string): Task<string>
+package "4. Audio Processing" {
+    class SpectralAnalyzerFactory <<Factory Method>>
+    abstract class BaseSpectralAnalyzer <<Template Method>>
+    interface ISpectralAnalyzer
+    class FFmpegAudioProcessor
+    
+    package "Spectral Analysis (NEW)" {
+        class SpectralAnalysisEngine <<Singleton>>
+        class ScanConfig <<Prototype>>
+        class ScanConfigBuilder <<Builder>>
+        class SpectralAnalysisResult <<DTO>>
     }
-
-    interface ISpectralAnalyzer << [done] >> {
-        + GetFrequencyCutoffAsync(filePath: string): Task<double>
-        + IsTrueLosslessAsync(filePath: string): Task<bool>
-    }
-
-    abstract class BaseSpectralAnalyzer << [done] >> {
-        - {static} Mp3CutoffThreshold: double = 16000
-        - {static} AacCutoffThreshold: double = 20000
-        - {static} LosslessMinCutoff: double = 22000
-        + GetFrequencyCutoffAsync(filePath: string): Task<double>
-        + IsTrueLosslessAsync(filePath: string): Task<bool>
-        # {abstract} DecodeToPcmAsync(filePath: string): Task<float[]>
-        - {static} AnalyzeSpectrum(samples: float[]): double
-    }
-
-    class FFmpegAudioProcessor << [done] >> {
-        - _analyzerFactory: SpectralAnalyzerFactory
-        + VerifyLosslessQualityAsync(filePath: string): Task<bool>
-        + ConvertToFlacAsync(inputPath: string): Task<string>
-    }
-
-    class SpectralAnalyzerFactory << (F,#2E86C1) Factory Method >> {
-        + Create(filePath: string): ISpectralAnalyzer
-    }
-
-    class FlacSpectralAnalyzer << [done] >> {
-        # DecodeToPcmAsync(filePath: string): Task<float[]>
-    }
-    class WavSpectralAnalyzer << [done] >> {
-        # DecodeToPcmAsync(filePath: string): Task<float[]>
-    }
-    class AlacSpectralAnalyzer << [done] >> {
-        # DecodeToPcmAsync(filePath: string): Task<float[]>
-    }
-    class AiffSpectralAnalyzer << [done] >> {
-        # DecodeToPcmAsync(filePath: string): Task<float[]>
-    }
-
-    note left of SpectralAnalyzerFactory
-        **FACTORY METHOD PATTERN**
-        Create() returns the correct
-        ISpectralAnalyzer based on
-        file extension (.flac, .wav,
-        .alac/.m4a, .aiff/.aif).
-    end note
-
-    note left of FFmpegAudioProcessor
-        Validates frequency cutoffs at
-        16kHz, 20kHz, and 22kHz to
-        detect upscaled transcodes.
-    end note
 }
 
 ' =============================================================================
-' Package 5 - Storage Services  [ABSTRACT FACTORY PATTERN]
+' Package 5 - Storage Services (ABSTRACT FACTORY, BRIDGE, COMPOSITE, PROXY)
 ' =============================================================================
 package "5. Storage Services" {
-    interface IFileUploader << [done] >> {
-        + UploadFileAsync(filePath: string, remoteFileName: string, folderPath: string): Task<bool>
-    }
-
-    interface IDirectoryManager << [done] >> {
-        + CreateDirectoryAsync(folderPath: string): Task<bool>
-    }
-
-    interface IStorageDiagnostics << [done] >> {
-        + CheckConnectionAsync(): Task<bool>
-    }
-
-    interface IStorageService << [done] >>
-
-    interface IStorageServiceFactory << (F,#2E86C1) Abstract Factory >> {
-        + CreateFileUploader(): IFileUploader
-        + CreateDirectoryManager(): IDirectoryManager
-        + CreateDiagnostics(): IStorageDiagnostics
-        + CreateStorageService(): IStorageService
-    }
-
-    abstract class StorageService << [done] >> {
-        + {abstract} CreateDirectoryAsync(folderPath: string): Task<bool>
-        + {abstract} UploadFileAsync(filePath: string, remoteFileName: string, folderPath: string): Task<bool>
-        + {abstract} CheckConnectionAsync(): Task<bool>
-    }
-
-    class WebDavStorageService << [done] >> {
-        - _baseUrl: string
-    }
-    class SftpStorageService << [done] >> {
-        - _host: string
-        - _username: string
-    }
-    class SambaStorageService << [done] >> {
-        - _sharePath: string
-    }
-
-    class WebDavStorageFactory << [done] >> {
-        - _baseUrl: string
-    }
-    class SftpStorageFactory << [done] >> {
-        - _host: string
-        - _username: string
-    }
-    class SambaStorageFactory << [done] >> {
-        - _sharePath: string
-    }
-
-    note left of IStorageServiceFactory
-        **ABSTRACT FACTORY PATTERN**
-        Each concrete factory creates a
-        family of related storage objects
-        (uploader + dir manager + diagnostics)
-        for a specific provider.
-    end note
+    interface IStorageServiceFactory <<Abstract Factory>>
+    interface IStorageService <<Implementor>>
+    abstract class AudioLibraryStorage <<Abstraction / Bridge>>
+    class StorageServiceProxy <<Proxy>>
+    class CompositeStorageService <<Composite>>
 }
 
 ' =============================================================================
-' RELATIONSHIPS
+' Package 6 - User Moderation (MEDIATOR, STATE, VISITOR, CHAIN, OBSERVER)
 ' =============================================================================
+package "6. User Moderation" {
+    interface IModerationMediator <<Mediator>>
+    interface IUserState <<State>>
+    interface IViolation <<Visitor Element>>
+    interface IViolationVisitor <<Visitor>>
+    abstract class PenaltyHandler <<Chain of Responsibility>>
+    interface IModerationObserver <<Observer>>
+}
 
-' --- 1. Entry Point ---
-Program ..> TelegramBotWorker : <<registers as HostedService>>
-TelegramBotWorker "1" --> "1" UpdateHandler : delegates updates to >
-UpdateHandler "1" --> "1" CommandRouter : uses >
-
-' --- 2. Command routing (Composition) ---
-CommandRouter "1" *-- "0..*" ICommand : contains >
-
-' --- 3. Realization: ICommand ---
-ICommand <|.. StartCommand
-ICommand <|.. SingleAudioUploadCommand
-ICommand <|.. StartAlbumCommand
-ICommand <|.. FinishAlbumCommand
-ICommand <|.. AdminWhitelistCommand
-ICommand <|.. AdminBlacklistCommand
-ICommand <|.. AdminStatsCommand
-
-' --- 4. Command dependencies ---
-StartCommand "0..*" --> "1" ITelegramBotClient : sends replies via >
-SingleAudioUploadCommand "0..*" --> "1" IAudioProcessor : uses >
-SingleAudioUploadCommand "0..*" --> "1" IStorageService : uses >
-StartAlbumCommand "0..*" --> "1" ISessionManager : interacts with >
-FinishAlbumCommand "0..*" --> "1" ISessionManager : interacts with >
-FinishAlbumCommand "0..*" --> "1" IAudioProcessor : uses >
-FinishAlbumCommand "0..*" --> "1" IStorageService : uses >
-
-' --- 5. Session Management ---
-ISessionManager <|.. InMemorySessionManager
-InMemorySessionManager "1" o-- "0..*" UserSession : tracks >
-
-' --- 6. User Management ---
-IUserService <|.. UserService
-UserService "0..*" --> "1" IUserRepository : delegates to >
-IUserRepository <|.. SqliteUserRepository
-SqliteUserRepository "0..*" --> "1" BotDbContext : queries >
-BotDbContext "1" o-- "0..*" User : manages >
-User "1" --> "1" UserStatus : has >
-
-' --- 7. Factory Method - Audio Processing ---
-IAudioProcessor <|.. FFmpegAudioProcessor
-FFmpegAudioProcessor "1" --> "1" SpectralAnalyzerFactory : utilizes >
-SpectralAnalyzerFactory ..> ISpectralAnalyzer : <<creates>>
-
-ISpectralAnalyzer <|.. BaseSpectralAnalyzer
-BaseSpectralAnalyzer <|-- FlacSpectralAnalyzer
-BaseSpectralAnalyzer <|-- WavSpectralAnalyzer
-BaseSpectralAnalyzer <|-- AlacSpectralAnalyzer
-BaseSpectralAnalyzer <|-- AiffSpectralAnalyzer
-
-' --- 8. Abstract Factory - Storage ---
-IStorageService --|> IFileUploader
-IStorageService --|> IDirectoryManager
-IStorageService --|> IStorageDiagnostics
-
-StorageService ..|> IStorageService
-WebDavStorageService --|> StorageService
-SftpStorageService --|> StorageService
-SambaStorageService --|> StorageService
-
-IStorageServiceFactory <|.. WebDavStorageFactory
-IStorageServiceFactory <|.. SftpStorageFactory
-IStorageServiceFactory <|.. SambaStorageFactory
-
-WebDavStorageFactory ..> WebDavStorageService : <<creates>>
-SftpStorageFactory ..> SftpStorageService : <<creates>>
-SambaStorageFactory ..> SambaStorageService : <<creates>>
-
-' --- 9. DI wiring (shown in Program) ---
-Program ..> SpectralAnalyzerFactory : <<registers>>
-Program ..> FFmpegAudioProcessor : <<registers as IAudioProcessor>>
-Program ..> WebDavStorageFactory : <<registers as IStorageServiceFactory>>
-Program ..> StartCommand : <<registers>>
-
-' --- Architectural flow ---
+' Architectural flow
 "1. Entry Point & Routing" ..> "2. Chat & Command Handlers" : <<use>>
 "2. Chat & Command Handlers" ..> "3. User & Session Management" : <<use>>
-"2. Chat & Command Handlers" ..> "4. Audio Processing & Spectral Analysis" : <<use>>
+"2. Chat & Command Handlers" ..> "4. Audio Processing" : <<use>>
 "2. Chat & Command Handlers" ..> "5. Storage Services" : <<use>>
+"2. Chat & Command Handlers" ..> "6. User Moderation" : <<use>>
 
 @enduml
