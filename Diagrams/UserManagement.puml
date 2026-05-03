@@ -1,0 +1,44 @@
+@startuml User Management & Repository Pattern
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "UserManagement.Entities" {
+    class User {
+        + TelegramId: long
+        + Status: UserStatus
+        + StrikeCount: int
+    }
+    enum UserStatus {
+        Pending
+        Whitelisted
+        Blacklisted
+        TimedOut
+    }
+}
+
+package "UserManagement (REPOSITORY PATTERN)" {
+    interface IUserRepository {
+        + GetOrCreateByTelegramIdAsync(id: long): Task<User>
+        + UpdateUserAsync(user: User): Task
+    }
+    class SqliteUserRepository {
+        - _connectionString: string
+    }
+    interface IUserService {
+        + GetOrCreateUserAsync(id: long): Task<User>
+        + ApplyStrikeAsync(id: long, reason: string): Task
+        + UpdateUserAsync(user: User): Task
+    }
+    class UserService {
+        - _repository: IUserRepository
+    }
+
+    IUserRepository <|.. SqliteUserRepository
+    IUserService <|.. UserService
+    UserService --> IUserRepository : uses
+}
+
+User "1" --> "1" UserStatus : has
+@enduml
