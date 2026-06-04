@@ -1,7 +1,0 @@
-@startuml Mediator Pattern
-interface IModerationMediator {
-    + ProcessViolation(user: User, violation: IViolation)
-}
-class ModerationMediator
-IModerationMediator <|.. ModerationMediator
-@enduml

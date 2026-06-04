@@ -1,208 +1,114 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using Telegram.Bot;
-using NurFlac.AudioProcessing;
-using NurFlac.AudioProcessing.Interfaces;
-using NurFlac.DuplicateChecking;
-using NurFlac.DuplicateChecking.ExternalApi;
-using NurFlac.Entry;
-using NurFlac.Handlers;
+using Microsoft.Extensions.Caching.Memory;
+using NurFlac.Album;
+using NurFlac.Audio.Abstractions;
+using NurFlac.Audio.Adapters;
+using NurFlac.Audio.Facade;
+using NurFlac.Audio.Factories;
+using NurFlac.Audio.Models;
+using NurFlac.Commands;
+using NurFlac.Commands.Factory;
+using NurFlac.Configuration;
+using NurFlac.Infrastructure.Telegram;
+using NurFlac.Ledger;
+using NurFlac.Ledger.Hashing;
 using NurFlac.Storage;
-using NurFlac.Validation;
+using NurFlac.Users;
+using Telegram.Bot;
 
 namespace NurFlac.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddTelegramBot(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddNurFlac(
+        this IServiceCollection services,
+        IConfiguration          configuration)
     {
-        services.AddSingleton<IUploadSessionCaretaker, SqliteUploadSessionCaretaker>();
-        services.AddSingleton<IUploadSessionQueue, UploadSessionQueue>();
+        // ── Singleton: BotConfigurationManager ───────────────────────────
+        services.AddSingleton<IBotConfiguration>(_ => BotConfigurationManager.Instance);
 
-        var botToken = configuration["TelegramBot:Token"]
-            ?? throw new InvalidOperationException("TelegramBot:Token is not configured.");
-
-        var localApiBaseUrl = configuration["TelegramBot:LocalApiBaseUrl"];
-
-        var botClient = string.IsNullOrWhiteSpace(localApiBaseUrl)
-            ? new TelegramBotClient(botToken)
-            : new TelegramBotClient(new TelegramBotClientOptions(botToken, localApiBaseUrl));
-
-        services.AddSingleton<ITelegramBotClient>(botClient);
-        return services;
-    }
-
-    public static IServiceCollection AddAudioProcessing(this IServiceCollection services)
-    {
-        services.AddSingleton<SpectralAnalyzerFactory>();
-        services.AddSingleton<IAudioProcessor, FFmpegAudioProcessor>();
-        services.AddSingleton<AudioFormatRegistry>();
-        return services;
-    }
-
-    public static IServiceCollection AddStorageServices(this IServiceCollection services, IConfiguration configuration)
-    {
-        var storageProviderConfig = configuration["Storage:Provider"]
-            ?? throw new InvalidOperationException("Storage:Provider is not configured.");
-
-        services.AddSingleton<IStorageServiceFactory>(sp =>
+        // ── Telegram Bot Client ───────────────────────────────────────────
+        services.AddSingleton<ITelegramBotClient>(sp =>
         {
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var providers = storageProviderConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            
-            var factories = providers.Select(p => CreateFactory(p, configuration, loggerFactory)).ToList();
-
-            return factories.Count == 1 
-                ? factories[0] 
-                : new CompositeStorageFactory(factories);
+            var cfg  = sp.GetRequiredService<IBotConfiguration>();
+            return string.IsNullOrWhiteSpace(cfg.LocalApiBaseUrl)
+                ? new TelegramBotClient(cfg.BotToken)
+                : new TelegramBotClient(new TelegramBotClientOptions(cfg.BotToken, cfg.LocalApiBaseUrl));
         });
 
-        services.AddSingleton<IStorageService>(sp =>
-            new StorageServiceProxy(
-                sp.GetRequiredService<IStorageServiceFactory>().CreateStorageService(),
-                sp.GetRequiredService<ILogger<StorageServiceProxy>>()));
+        // ── Strategy: Hash strategy selected from configuration ───────────
+        services.AddSingleton<IHashStrategy>(sp =>
+        {
+            var cfg = sp.GetRequiredService<IBotConfiguration>();
+            return cfg.HashStrategy.ToUpperInvariant() == "MD5"
+                ? (IHashStrategy)new Md5HashStrategy()
+                : new Sha256HashStrategy();
+        });
 
-        var audioLibraryOrganization = configuration["Storage:AudioLibrary:Organization"] ?? "flat";
+        // ── Ledger ────────────────────────────────────────────────────────
+        services.AddSingleton<ILedgerRepository>(sp =>
+            new SqliteLedgerRepository(sp.GetRequiredService<IBotConfiguration>().LedgerDbPath));
+        services.AddSingleton<LedgerService>();
+
+        // ── Proxy: CachingUserRepositoryProxy wraps SqliteUserRepository ──
+        services.AddMemoryCache();
+        services.AddSingleton<IUserRepository>(sp =>
+        {
+            var cfg   = sp.GetRequiredService<IBotConfiguration>();
+            var real  = new SqliteUserRepository(cfg.UsersDbPath);
+            var cache = sp.GetRequiredService<IMemoryCache>();
+            return new CachingUserRepositoryProxy(real, cache);
+        });
+        services.AddSingleton<IUserService, UserService>();
+
+        // ── Adapter: FfmpegAdapter is the IFfmpegTool Target ─────────────
+        services.AddSingleton<IFfmpegTool, FfmpegAdapter>();
+
+        // ── Abstract Factory: analyzer factory family ─────────────────────
+        services.AddSingleton<IAudioAnalyzerFactory, LosslessAnalyzerFactory>();
+
+        // ── Audio domain ──────────────────────────────────────────────────
+        services.AddSingleton<AudioFormatRegistry>();
+
+        // ── Facade: AudioPipelineFacade wraps the CoR chain ───────────────
+        services.AddSingleton<AudioPipelineFacade>();
+
+        // ── Storage: AudioLibraryStorage backed by the configured provider ─
         services.AddSingleton<AudioLibraryStorage>(sp =>
         {
-            var storage = sp.GetRequiredService<IStorageService>();
-            var registry = sp.GetRequiredService<AudioFormatRegistry>();
-            return audioLibraryOrganization.ToLowerInvariant() switch
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var provider      = configuration["Storage:Provider"] ?? "WebDav";
+            var org           = configuration["Storage:AudioLibrary:Organization"] ?? "flat";
+
+            IStorageService storage = provider.ToUpperInvariant() switch
             {
-                "organized" => (AudioLibraryStorage)new OrganizedAudioLibraryStorage(storage, registry),
-                _ => new FlatAudioLibraryStorage(storage)
+                "WEBDAV" => new WebDavStorageFactory(
+                    configuration["Storage:WebDav:BaseUrl"]
+                        ?? throw new InvalidOperationException("Storage:WebDav:BaseUrl is not configured."),
+                    configuration["Storage:WebDav:Username"]
+                        ?? throw new InvalidOperationException("Storage:WebDav:Username is not configured."),
+                    configuration["Storage:WebDav:Password"]
+                        ?? throw new InvalidOperationException("Storage:WebDav:Password is not configured."),
+                    loggerFactory).CreateStorageService(),
+                _ => throw new InvalidOperationException($"Unknown storage provider: '{provider}'.")
             };
+
+            var registry = sp.GetRequiredService<AudioFormatRegistry>();
+            return org.ToLowerInvariant() == "organized"
+                ? (AudioLibraryStorage)new OrganizedAudioLibraryStorage(storage, registry)
+                : new FlatAudioLibraryStorage(storage);
         });
 
-        return services;
-    }
+        // ── State + Builder: album session manager ────────────────────────
+        services.AddSingleton<AlbumSessionManager>();
 
-    private static IStorageServiceFactory CreateFactory(string provider, IConfiguration config, ILoggerFactory loggerFactory)
-    {
-        return provider.ToLowerInvariant() switch
-        {
-            "webdav" => new WebDavStorageFactory(
-                config["Storage:WebDav:BaseUrl"]
-                    ?? throw new InvalidOperationException("Storage:WebDav:BaseUrl is not configured."),
-                config["Storage:WebDav:Username"]
-                    ?? throw new InvalidOperationException("Storage:WebDav:Username is not configured."),
-                config["Storage:WebDav:Password"]
-                    ?? throw new InvalidOperationException("Storage:WebDav:Password is not configured."),
-                loggerFactory),
-            "sftp" => new SftpStorageFactory(
-                config["Storage:Sftp:Host"]
-                    ?? throw new InvalidOperationException("Storage:Sftp:Host is not configured."),
-                config["Storage:Sftp:Username"]
-                    ?? throw new InvalidOperationException("Storage:Sftp:Username is not configured."),
-                config["Storage:Sftp:RootPath"]),
-            "samba" => new SambaStorageFactory(
-                config["Storage:Samba:SharePath"]
-                    ?? throw new InvalidOperationException("Storage:Samba:SharePath is not configured."),
-                config["Storage:Samba:RootPath"]),
-            _ => throw new InvalidOperationException($"Unknown storage provider: '{provider}'.")
-        };
-    }
+        // ── Factory Method: StandardCommandFactory ────────────────────────
+        services.AddSingleton<CommandFactory, StandardCommandFactory>();
+        services.AddSingleton<CommandDispatcher>();
 
-    public static IServiceCollection AddDuplicateChecking(this IServiceCollection services, IConfiguration configuration)
-    {
-        var duplicateDbPath = configuration["DuplicateCheck:SqlitePath"] ?? "Data/nurflac-duplicates.db";
-        var externalApiEnabled = configuration.GetValue<bool>("DuplicateCheck:ExternalApi:Enabled");
+        // ── Infrastructure ────────────────────────────────────────────────
+        services.AddSingleton<UpdateRouter>();
+        services.AddHostedService<TelegramBotWorker>();
 
-        services.AddSingleton<IDuplicateFingerprintRepository>(_ => new SqliteDuplicateFingerprintRepository(duplicateDbPath));
-        services.AddSingleton<IAudioFingerprintProvider, FfmpegFingerprintProvider>();
-
-        if (externalApiEnabled)
-        {
-            services.AddSingleton<IExternalFingerprintApi, ExternalFingerprintHttpApi>();
-            services.AddSingleton<IAudioFingerprintProvider, ExternalFingerprintApiAdapter>();
-        }
-
-        services.AddSingleton<IDuplicateCheckFacade, DuplicateCheckFacade>();
-        return services;
-    }
-
-    public static IServiceCollection AddCommandTracking(this IServiceCollection services, IConfiguration configuration)
-    {
-        var commandTrackingDbPath = configuration["CommandTracking:SqlitePath"] ?? "Data/nurflac-command-tracking.db";
-        services.AddSingleton<ICommandExecutionTracker>(_ => new SqliteCommandExecutionTracker(commandTrackingDbPath));
-        return services;
-    }
-
-    public static IServiceCollection AddValidationPipeline(this IServiceCollection services)
-    {
-        services.AddSingleton<ILosslessAudioValidator>(sp =>
-            new SpectralValidatorDecorator(
-                new MimeValidatorDecorator(
-                    new ExtensionValidatorDecorator(
-                        new PassthroughValidator(),
-                        sp.GetRequiredService<AudioFormatRegistry>()),
-                    sp.GetRequiredService<AudioFormatRegistry>()),
-                sp.GetRequiredService<IAudioProcessor>(),
-                sp.GetRequiredService<ILogger<SpectralValidatorDecorator>>()));
-        return services;
-    }
-
-    public static IServiceCollection AddTelegramCommands(this IServiceCollection services)
-    {
-        services.AddSingleton<StartCommand>();
-        services.AddSingleton<HelpCommand>();
-        services.AddSingleton<FormatsCommand>();
-        services.AddSingleton<TestUploadCommand>();
-        services.AddSingleton<SingleAudioUploadCommand>();
-        services.AddSingleton<ScanCommand>();
-        services.AddSingleton<ModTestCommand>();
-        
-        services.AddSingleton<IEnumerable<CommandRegistration>>(sp =>
-        [
-            new CommandRegistration
-            {
-                Name = "start",
-                Aliases = ["hello", "begin"],
-                Category = "General",
-                Handler = sp.GetRequiredService<StartCommand>()
-            },
-            new CommandRegistration
-            {
-                Name = "help",
-                Aliases = ["h", "commands"],
-                Category = "General",
-                Handler = sp.GetRequiredService<HelpCommand>()
-            },
-            new CommandRegistration
-            {
-                Name = "formats",
-                Aliases = ["supported", "accept"],
-                Category = "General",
-                Handler = sp.GetRequiredService<FormatsCommand>()
-            },
-            new CommandRegistration
-            {
-                Name = "testupload",
-                Aliases = ["tupload"],
-                Category = "Admin",
-                Handler = sp.GetRequiredService<TestUploadCommand>()
-            },
-            new CommandRegistration
-            {
-                Name = "scan",
-                Aliases = ["verify"],
-                Category = "Admin",
-                Handler = sp.GetRequiredService<ScanCommand>()
-            },
-            new CommandRegistration
-            {
-                Name = "modtest",
-                Aliases = ["violation"],
-                Category = "Admin",
-                Handler = sp.GetRequiredService<ModTestCommand>()
-            }
-        ]);
-        
-        services.AddSingleton<ICommandCatalog, CommandCatalog>();
-        services.AddSingleton<CommandRouter>();
-        services.AddSingleton<UpdateHandler>();
-        
         return services;
     }
 }

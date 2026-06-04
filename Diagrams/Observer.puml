@@ -1,7 +1,0 @@
-@startuml Observer Pattern
-interface IModerationObserver {
-    + OnViolationProcessed(user: User, violation: IViolation)
-}
-class LoggingModerationObserver
-IModerationObserver <|.. LoggingModerationObserver
-@enduml

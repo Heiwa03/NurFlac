@@ -1,5 +1,4 @@
-using NurFlac.AudioProcessing;
-using NurFlac.Validation;
+using NurFlac.Audio.Models;
 
 namespace NurFlac.Storage;
 
