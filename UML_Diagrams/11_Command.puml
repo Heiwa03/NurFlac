@@ -1,0 +1,73 @@
+@startuml Command_BotCommands
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Command Pattern — Bot Command Objects
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>COMMAND (Behavioral)</b>
+  IBotCommand encapsulates each bot action as a strongly-typed,
+  invocable object. CommandDispatcher (Invoker) calls
+  ExecuteAsync() without knowing what the command does.
+  StandardCommandFactory (Factory Method) creates and
+  decorates commands before the Invoker receives them.
+  HelpCommand accepts IBotConfiguration so it can
+  conditionally show admin commands only to admins.
+end note
+
+interface IBotCommand << Command >> {
+  + CommandToken : string
+  + ExecuteAsync(message, ct) : Task
+}
+
+class CommandDispatcher << Invoker >> {
+  - factory   : CommandFactory
+  - botClient : ITelegramBotClient
+  - logger    : ILogger<CommandDispatcher>
+  + DispatchAsync(message, ct) : Task
+}
+
+class StartCommand       << ConcreteCommand >>
+
+class HelpCommand        << ConcreteCommand >> {
+  - botClient : ITelegramBotClient
+  - config    : IBotConfiguration
+  + ExecuteAsync(message, ct) : Task
+}
+
+note bottom of HelpCommand
+  Shows admin commands section
+  only when caller is an admin.
+  Non-admins see user commands only.
+end note
+
+class FormatsCommand     << ConcreteCommand >>
+class AlbumUploadCommand << ConcreteCommand >>
+class AlbumDoneCommand   << ConcreteCommand >>
+class BanCommand         << ConcreteCommand >>
+class TimeoutCommand     << ConcreteCommand >>
+class UnbanCommand       << ConcreteCommand >>
+
+class UpdateRouter << Client >> {
+  + RouteAsync(update, ct) : Task
+}
+
+IBotCommand <|.. StartCommand
+IBotCommand <|.. HelpCommand
+IBotCommand <|.. FormatsCommand
+IBotCommand <|.. AlbumUploadCommand
+IBotCommand <|.. AlbumDoneCommand
+IBotCommand <|.. BanCommand
+IBotCommand <|.. TimeoutCommand
+IBotCommand <|.. UnbanCommand
+
+CommandDispatcher ..> IBotCommand      : ExecuteAsync()
+UpdateRouter      ..> CommandDispatcher : DispatchAsync()
+
+@enduml

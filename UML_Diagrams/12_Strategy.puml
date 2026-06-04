@@ -1,0 +1,59 @@
+@startuml Strategy_HashStrategy
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Strategy Pattern — File Hashing for Ledger
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>STRATEGY (Behavioral)</b>
+  IHashStrategy defines the interchangeable hashing
+  algorithm interface. LedgerService (Context) holds
+  a reference to the current strategy and delegates
+  ComputeAsync() to it before writing to the DB.
+  The active strategy is selected at startup from
+  Ledger:HashStrategy in appsettings.json ("MD5" or "SHA256").
+end note
+
+interface IHashStrategy << Strategy >> {
+  + AlgorithmName : string
+  + ComputeAsync(data : Stream, ct) : Task<string>
+}
+
+class Md5HashStrategy << ConcreteStrategy >> {
+  + AlgorithmName = "MD5"
+  + ComputeAsync(data, ct) : Task<string>
+}
+
+note right of Md5HashStrategy
+  Uses MD5.HashDataAsync()
+  Returns lowercase hex string.
+end note
+
+class Sha256HashStrategy << ConcreteStrategy >> {
+  + AlgorithmName = "SHA256"
+  + ComputeAsync(data, ct) : Task<string>
+}
+
+note right of Sha256HashStrategy
+  Uses SHA256.HashDataAsync()
+  Returns lowercase hex string.
+end note
+
+class LedgerService << Context >> {
+  - repository : ILedgerRepository
+  - hashStrategy : IHashStrategy
+  + IsDuplicateAsync(filePath, ct) : Task<bool>
+  + RecordAsync(filePath, telegramId, ct) : Task
+}
+
+IHashStrategy    <|.. Md5HashStrategy
+IHashStrategy    <|.. Sha256HashStrategy
+LedgerService    --> IHashStrategy : hashStrategy
+
+@enduml

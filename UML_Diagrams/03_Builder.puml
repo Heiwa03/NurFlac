@@ -1,0 +1,61 @@
+@startuml Builder_AlbumReportBuilder
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Builder Pattern — AlbumReportBuilder
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>BUILDER (Creational)</b>
+  IAlbumReportBuilder defines the construction steps.
+  AlbumReportBuilder accumulates file results in a
+  thread-safe manner using the C# 13 .lock type,
+  then assembles the final AlbumReport product.
+  AlbumUploadState acts as the Director.
+end note
+
+interface IAlbumReportBuilder << Builder >> {
+  + AddSuccess(fileName : string) : IAlbumReportBuilder
+  + AddFailure(fileName : string, reason : string) : IAlbumReportBuilder
+  + Build() : AlbumReport
+}
+
+class AlbumReportBuilder << ConcreteBuilder >> {
+  - _lock : Lock
+  - _accepted : List<string>
+  - _rejected : List<(string, string)>
+  - telegramId : long
+  + AddSuccess(fileName : string) : IAlbumReportBuilder
+  + AddFailure(fileName : string, reason : string) : IAlbumReportBuilder
+  + Build() : AlbumReport
+}
+
+class AlbumReport << Product >> {
+  + TelegramId : long
+  + GeneratedAt : DateTime
+  + Accepted : IReadOnlyList<string>
+  + Rejected : IReadOnlyList<(string, string)>
+  + ToMarkdown() : string
+}
+
+class AlbumUploadState << Director >> {
+  + HandleAlbumDoneCommandAsync(ctx, ct) : Task<string>
+}
+
+note right of AlbumReportBuilder
+  Uses C# 13 `Lock` (.lock keyword)
+  instead of object for thread-safe
+  step accumulation.
+end note
+
+IAlbumReportBuilder <|.. AlbumReportBuilder
+AlbumReportBuilder ..> AlbumReport : <<builds>>
+AlbumUploadState ..> AlbumReportBuilder : <<uses>>
+AlbumUploadState ..> IAlbumReportBuilder : <<directs>>
+
+@enduml

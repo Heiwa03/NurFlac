@@ -1,0 +1,59 @@
+@startuml Facade_AudioPipelineFacade
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Facade Pattern — AudioPipelineFacade
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>FACADE (Structural)</b>
+  AudioPipelineFacade presents a single ValidateAsync()
+  entry-point over the 3-step Chain of Responsibility pipeline.
+  Callers (UpdateRouter, AlbumUploadState) never wire handlers
+  or traverse the chain directly.
+  ILoggerFactory is injected so the Facade creates typed loggers
+  for each handler it wires internally.
+end note
+
+class AudioPipelineFacade << Facade >> {
+  - _chain  : IAudioValidationHandler
+  - _logger : ILogger<AudioPipelineFacade>
+  + AudioPipelineFacade(registry, analyzerFactory, loggerFactory)
+  + ValidateAsync(context, ct) : Task<ValidationResult>
+}
+
+note left of AudioPipelineFacade
+  Constructor wires the chain:
+  Extension → MIME → Spectral
+  and creates a typed ILogger
+  for each handler via loggerFactory.
+end note
+
+interface IAudioValidationHandler << Subsystem >> {
+  + SetNext(next) : IAudioValidationHandler
+  + HandleAsync(context, ct) : Task<ValidationResult>
+}
+
+class ExtensionValidationHandler << Subsystem >>
+class MimeValidationHandler      << Subsystem >>
+class SpectralValidationHandler  << Subsystem >>
+
+class UpdateRouter     << Client >>
+class AlbumUploadState << Client >>
+
+AudioPipelineFacade --> IAudioValidationHandler : _chain
+IAudioValidationHandler <|.. ExtensionValidationHandler
+IAudioValidationHandler <|.. MimeValidationHandler
+IAudioValidationHandler <|.. SpectralValidationHandler
+ExtensionValidationHandler --> MimeValidationHandler     : next
+MimeValidationHandler      --> SpectralValidationHandler : next
+
+UpdateRouter     ..> AudioPipelineFacade : ValidateAsync()
+AlbumUploadState ..> AudioPipelineFacade : ValidateAsync()
+
+@enduml

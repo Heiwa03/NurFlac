@@ -1,0 +1,62 @@
+@startuml Proxy_CachingUserRepository
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Proxy Pattern — CachingUserRepositoryProxy
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>PROXY (Structural)</b>
+  CachingUserRepositoryProxy (Proxy) implements
+  IUserRepository and forwards calls to
+  SqliteUserRepository (RealSubject) only on cache misses.
+  Banned/timed-out user records are cached with a 30s TTL,
+  avoiding a DB round-trip on every Telegram message.
+  On UpdateAsync(), the cache entry is invalidated.
+end note
+
+interface IUserRepository << Subject >> {
+  + GetOrCreateAsync(telegramId, ct) : Task<User>
+  + UpdateAsync(user, ct) : Task
+}
+
+class SqliteUserRepository << RealSubject >> {
+  - _connectionString : string
+  + GetOrCreateAsync(telegramId, ct) : Task<User>
+  + UpdateAsync(user, ct) : Task
+}
+
+class CachingUserRepositoryProxy << Proxy >> {
+  - inner : IUserRepository
+  - cache : IMemoryCache
+  - {static} CacheTtl : TimeSpan = 30s
+  + GetOrCreateAsync(telegramId, ct) : Task<User>
+  + UpdateAsync(user, ct) : Task
+}
+
+note bottom of CachingUserRepositoryProxy
+  On hit → returns cached User.
+  On miss → delegates to RealSubject,
+  stores result with 30s TTL.
+  UpdateAsync() removes the entry.
+end note
+
+class UserService << Client >> {
+  + GetOrCreateAsync(telegramId, ct) : Task<User>
+  + ApplyStrikeAsync(telegramId, ct) : Task
+  + TimeoutAsync(telegramId, hours, ct) : Task
+  + BanAsync(telegramId, ct) : Task
+  + UnbanAsync(telegramId, ct) : Task
+}
+
+IUserRepository         <|.. SqliteUserRepository
+IUserRepository         <|.. CachingUserRepositoryProxy
+CachingUserRepositoryProxy --> SqliteUserRepository : inner (delegates on miss)
+UserService             ..> IUserRepository : <<uses>>
+
+@enduml

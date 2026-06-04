@@ -1,0 +1,80 @@
+@startuml FactoryMethod_CommandFactory
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Factory Method Pattern — CommandFactory
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>FACTORY METHOD (Creational)</b>
+  CommandFactory (Creator) declares the abstract factory method
+  CreateCommand(). StandardCommandFactory (ConcreteCreator)
+  overrides it to instantiate the correct IBotCommand product.
+  The non-virtual Create() wraps the product with exactly one
+  guard decorator depending on command type:
+    · Admin commands  → AdminGuardDecorator only
+    · User commands   → ModerationGuardDecorator only
+  ILoggerFactory is injected so each decorator gets its own
+  typed ILogger without capturing DI dependencies in the derived class.
+end note
+
+interface IBotCommand << Product >> {
+  + CommandToken : string
+  + ExecuteAsync(message, ct) : Task
+}
+
+abstract class CommandFactory << Creator >> {
+  # Config         : IBotConfiguration
+  # UserService    : IUserService
+  # BotClient      : ITelegramBotClient
+  - _loggerFactory : ILoggerFactory
+  + Create(token : string) : IBotCommand?
+  # {abstract} CreateCommand(token : string) : IBotCommand?
+  - {static} IsAdminCommand(token : string) : bool
+}
+
+note right of CommandFactory
+  IsAdminCommand() returns true
+  for "ban", "timeout", "unban".
+  All other tokens are user commands.
+end note
+
+class StandardCommandFactory << ConcreteCreator >> {
+  - _registry : AudioFormatRegistry
+  - _sessions : AlbumSessionManager
+  + StandardCommandFactory(config, userService, botClient,\n  loggerFactory, registry, sessions)
+  # CreateCommand(token : string) : IBotCommand?
+}
+
+note bottom of StandardCommandFactory
+  "start"        → StartCommand
+  "help"         → HelpCommand
+  "formats"      → FormatsCommand
+  "album-upload" → AlbumUploadCommand
+  "album-done"   → AlbumDoneCommand
+  "ban"          → BanCommand
+  "timeout"      → TimeoutCommand
+  "unban"        → UnbanCommand
+end note
+
+class StartCommand       << ConcreteProduct >>
+class HelpCommand        << ConcreteProduct >>
+class AlbumUploadCommand << ConcreteProduct >>
+class BanCommand         << ConcreteProduct >>
+
+CommandFactory <|-- StandardCommandFactory
+IBotCommand <|.. StartCommand
+IBotCommand <|.. HelpCommand
+IBotCommand <|.. AlbumUploadCommand
+IBotCommand <|.. BanCommand
+StandardCommandFactory ..> StartCommand       : <<creates>>
+StandardCommandFactory ..> HelpCommand        : <<creates>>
+StandardCommandFactory ..> AlbumUploadCommand : <<creates>>
+StandardCommandFactory ..> BanCommand         : <<creates>>
+
+@enduml

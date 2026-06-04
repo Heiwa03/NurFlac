@@ -1,0 +1,75 @@
+@startuml AbstractFactory_AudioAnalyzerFactory
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Abstract Factory Pattern — Audio Analyzer Families
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>ABSTRACT FACTORY (Creational)</b>
+  IAudioAnalyzerFactory declares creation methods for
+  families of ISpectralAnalyzer products.
+  LosslessAnalyzerFactory creates analyzers for true
+  lossless verification. LossyDetectorFactory provides
+  analyzers tuned for detecting transcoded files.
+end note
+
+interface IAudioAnalyzerFactory << AbstractFactory >> {
+  + Category : string
+  + CreateFlacAnalyzer() : ISpectralAnalyzer
+  + CreateWavAnalyzer()  : ISpectralAnalyzer
+  + CreateAlacAnalyzer() : ISpectralAnalyzer
+  + CreateAiffAnalyzer() : ISpectralAnalyzer
+  + CreateForExtension(ext : string) : ISpectralAnalyzer?
+}
+
+class LosslessAnalyzerFactory << ConcreteFactory1 >> {
+  + Category : string = "Lossless"
+  + CreateFlacAnalyzer() : ISpectralAnalyzer
+  + CreateWavAnalyzer()  : ISpectralAnalyzer
+  + CreateAlacAnalyzer() : ISpectralAnalyzer
+  + CreateAiffAnalyzer() : ISpectralAnalyzer
+  + CreateForExtension(ext : string) : ISpectralAnalyzer?
+}
+
+class LossyDetectorFactory << ConcreteFactory2 >> {
+  + Category : string = "LossyDetector"
+  + CreateFlacAnalyzer() : ISpectralAnalyzer
+  + CreateWavAnalyzer()  : ISpectralAnalyzer
+  + CreateAlacAnalyzer() : ISpectralAnalyzer
+  + CreateAiffAnalyzer() : ISpectralAnalyzer
+  + CreateForExtension(ext : string) : ISpectralAnalyzer?
+}
+
+interface ISpectralAnalyzer << AbstractProduct >> {
+  + AnalyzeAsync(filePath, ct) : Task<SpectralAnalysisResult>
+}
+
+class FlacSpectralAnalyzer  << ConcreteProduct >>
+class WavSpectralAnalyzer   << ConcreteProduct >>
+class AlacSpectralAnalyzer  << ConcreteProduct >>
+class AiffSpectralAnalyzer  << ConcreteProduct >>
+
+IAudioAnalyzerFactory <|.. LosslessAnalyzerFactory
+IAudioAnalyzerFactory <|.. LossyDetectorFactory
+ISpectralAnalyzer     <|.. FlacSpectralAnalyzer
+ISpectralAnalyzer     <|.. WavSpectralAnalyzer
+ISpectralAnalyzer     <|.. AlacSpectralAnalyzer
+ISpectralAnalyzer     <|.. AiffSpectralAnalyzer
+
+LosslessAnalyzerFactory ..> FlacSpectralAnalyzer  : <<creates>>
+LosslessAnalyzerFactory ..> WavSpectralAnalyzer   : <<creates>>
+LosslessAnalyzerFactory ..> AlacSpectralAnalyzer  : <<creates>>
+LosslessAnalyzerFactory ..> AiffSpectralAnalyzer  : <<creates>>
+
+LossyDetectorFactory ..> FlacSpectralAnalyzer  : <<creates>>
+LossyDetectorFactory ..> WavSpectralAnalyzer   : <<creates>>
+LossyDetectorFactory ..> AlacSpectralAnalyzer  : <<creates>>
+LossyDetectorFactory ..> AiffSpectralAnalyzer  : <<creates>>
+
+@enduml

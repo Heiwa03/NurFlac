@@ -1,0 +1,59 @@
+@startuml Singleton_BotConfigurationManager
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Singleton Pattern — BotConfigurationManager
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>SINGLETON (Creational)</b>
+  Ensures one and only one instance of
+  BotConfigurationManager exists across
+  the application lifetime. Merges
+  appsettings.json with NURFLAC_* env vars.
+end note
+
+interface IBotConfiguration << Interface >> {
+  + BotToken : string
+  + AdminIds : IReadOnlyList<long>
+  + LocalApiBaseUrl : string?
+  + LocalApiPath : string?
+  + NginxUrl : string?
+  + LedgerDbPath : string
+  + UsersDbPath : string
+  + HashStrategy : string
+  + IsAdmin(telegramId : long) : bool
+}
+
+class BotConfigurationManager << Singleton >> {
+  - {static} _instance : Lazy<BotConfigurationManager>
+  - _config : IConfiguration
+  - BotConfigurationManager()
+  + {static} Instance : IBotConfiguration <<get>>
+  + BotToken : string <<get>>
+  + AdminIds : IReadOnlyList<long> <<get>>
+  + LocalApiBaseUrl : string? <<get>>
+  + LocalApiPath : string? <<get>>
+  + NginxUrl : string? <<get>>
+  + LedgerDbPath : string <<get>>
+  + UsersDbPath : string <<get>>
+  + HashStrategy : string <<get>>
+  + IsAdmin(telegramId : long) : bool
+}
+
+note right of BotConfigurationManager
+  Private constructor prevents
+  external instantiation.
+  Lazy<T> provides thread-safe
+  first-access initialisation.
+end note
+
+BotConfigurationManager ..|> IBotConfiguration
+BotConfigurationManager --> BotConfigurationManager : <<creates self>>\nInstance
+
+@enduml

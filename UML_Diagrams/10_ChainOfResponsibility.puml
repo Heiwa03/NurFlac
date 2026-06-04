@@ -1,0 +1,80 @@
+@startuml ChainOfResponsibility_ValidationPipeline
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Chain of Responsibility — Audio Validation Pipeline
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>CHAIN OF RESPONSIBILITY (Behavioral)</b>
+  Each handler validates one aspect of the audio file.
+  On failure: returns ValidationResult.Reject() immediately.
+  On success: delegates to the next handler via base.HandleAsync().
+  Chain order: Extension → MIME → Spectral.
+  The Facade wires the chain and injects a typed ILogger into
+  each handler; callers only see AudioPipelineFacade.ValidateAsync().
+end note
+
+interface IAudioValidationHandler << Handler >> {
+  + SetNext(next) : IAudioValidationHandler
+  + HandleAsync(context, ct) : Task<ValidationResult>
+}
+
+abstract class AudioValidationHandler << AbstractHandler >> {
+  - _next : IAudioValidationHandler?
+  + SetNext(next) : IAudioValidationHandler
+  + HandleAsync(context, ct) : Task<ValidationResult>
+}
+
+class ExtensionValidationHandler << ConcreteHandler1 >> {
+  - registry : AudioFormatRegistry
+  - logger   : ILogger<ExtensionValidationHandler>
+  + HandleAsync(context, ct) : Task<ValidationResult>
+}
+
+note right of ExtensionValidationHandler
+  Rejects empty extension.
+  Rejects unknown extension.
+  Rejects known lossy format.
+  Logs DEBUG on pass, INFO on reject.
+end note
+
+class MimeValidationHandler << ConcreteHandler2 >> {
+  - registry : AudioFormatRegistry
+  - logger   : ILogger<MimeValidationHandler>
+  + HandleAsync(context, ct) : Task<ValidationResult>
+}
+
+note right of MimeValidationHandler
+  Pass-through if MimeType is null.
+  Rejects unrecognised MIME type.
+  Rejects known lossy MIME type.
+  Logs DEBUG on pass, INFO on reject.
+end note
+
+class SpectralValidationHandler << ConcreteHandler3 >> {
+  - analyzerFactory : IAudioAnalyzerFactory
+  - logger          : ILogger<SpectralValidationHandler>
+  + HandleAsync(context, ct) : Task<ValidationResult>
+}
+
+note right of SpectralValidationHandler
+  Requires LocalFilePath to be set.
+  Runs FFT energy-ratio analysis.
+  Rejects likely transcodes.
+  Logs INFO with cutoff Hz and ratio.
+end note
+
+IAudioValidationHandler    <|.. AudioValidationHandler
+AudioValidationHandler     <|-- ExtensionValidationHandler
+AudioValidationHandler     <|-- MimeValidationHandler
+AudioValidationHandler     <|-- SpectralValidationHandler
+ExtensionValidationHandler --> MimeValidationHandler     : _next
+MimeValidationHandler      --> SpectralValidationHandler : _next
+
+@enduml

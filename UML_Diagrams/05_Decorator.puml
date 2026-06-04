@@ -1,0 +1,82 @@
+@startuml Decorator_CommandGuards
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Decorator Pattern — Command Moderation & Admin Guards
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>DECORATOR (Structural)</b>
+  CommandDecorator (abstract Decorator) wraps any IBotCommand
+  (Component) to inject a cross-cutting guard before execution.
+
+  The two decorators are <b>mutually exclusive</b> — CommandFactory
+  applies exactly one per command:
+    · User commands  → ModerationGuardDecorator
+        Blocks banned / timed-out senders.
+        A banned admin is blocked for user commands.
+    · Admin commands → AdminGuardDecorator
+        Silently drops the message for non-admins (no reply sent,
+        so the command's existence stays hidden from regular users).
+        Bypasses moderation — a banned admin can still execute.
+end note
+
+interface IBotCommand << Component >> {
+  + CommandToken : string
+  + ExecuteAsync(message, ct) : Task
+}
+
+abstract class CommandDecorator << Decorator >> {
+  # Inner : IBotCommand
+  + CommandToken : string
+  + {abstract} ExecuteAsync(message, ct) : Task
+}
+
+class ModerationGuardDecorator << ConcreteDecorator >> {
+  - userService : IUserService
+  - botClient   : ITelegramBotClient
+  - logger      : ILogger<ModerationGuardDecorator>
+  + ExecuteAsync(message, ct) : Task
+}
+
+note right of ModerationGuardDecorator
+  1. Loads user from IUserService.
+  2. Rejects if IsBanned() or IsTimedOut().
+  3. Auto-lifts expired timeouts.
+  Applied to: start, help, formats,
+  album-upload, album-done.
+end note
+
+class AdminGuardDecorator << ConcreteDecorator >> {
+  - config    : IBotConfiguration
+  - botClient : ITelegramBotClient
+  - logger    : ILogger<AdminGuardDecorator>
+  + ExecuteAsync(message, ct) : Task
+}
+
+note right of AdminGuardDecorator
+  Checks IBotConfiguration.IsAdmin().
+  Non-admins: silently ignored, no reply.
+  Does NOT check ban/timeout status —
+  admin commands bypass moderation.
+  Applied to: ban, timeout, unban.
+end note
+
+class BanCommand     << ConcreteComponent >>
+class TimeoutCommand << ConcreteComponent >>
+class StartCommand   << ConcreteComponent >>
+
+IBotCommand      <|.. CommandDecorator
+IBotCommand      <|.. BanCommand
+IBotCommand      <|.. TimeoutCommand
+IBotCommand      <|.. StartCommand
+CommandDecorator <|-- ModerationGuardDecorator
+CommandDecorator <|-- AdminGuardDecorator
+CommandDecorator o--> IBotCommand : wraps (Inner)
+
+@enduml

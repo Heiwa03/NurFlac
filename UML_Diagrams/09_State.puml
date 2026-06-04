@@ -1,0 +1,74 @@
+@startuml State_AlbumSession
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title State Pattern — Album Upload Session
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>STATE (Behavioral)</b>
+  AlbumSession (Context) delegates all user
+  interactions to the current IAlbumState.
+  IdleState handles single-file uploads and
+  transitions to AlbumUploadState on /album-upload.
+  AlbumUploadState accumulates files and finalizes
+  the batch on /album-done, then returns to IdleState.
+end note
+
+class AlbumSession << Context >> {
+  + TelegramId : long
+  + PendingFiles : List<AudioFileContext>
+  ~ Pipeline : AudioPipelineFacade
+  ~ Ledger : LedgerService
+  - _state : IAlbumState
+  + CurrentStateName : string
+  + TransitionTo(state) : void
+  + HandleFileAsync(file, ct) : Task<string>
+  + HandleAlbumUploadAsync(ct) : Task<string>
+  + HandleAlbumDoneAsync(ct) : Task<string>
+}
+
+interface IAlbumState << State >> {
+  + StateName : string
+  + HandleFileAsync(ctx, file, ct) : Task<string>
+  + HandleAlbumUploadCommandAsync(ctx, ct) : Task<string>
+  + HandleAlbumDoneCommandAsync(ctx, ct) : Task<string>
+}
+
+class IdleState << ConcreteState >> {
+  + StateName = "Idle"
+  + HandleFileAsync(ctx, file, ct) : Task<string>
+  + HandleAlbumUploadCommandAsync(ctx, ct) : Task<string>
+  + HandleAlbumDoneCommandAsync(ctx, ct) : Task<string>
+}
+
+class AlbumUploadState << ConcreteState >> {
+  + StateName = "AlbumUpload"
+  + HandleFileAsync(ctx, file, ct) : Task<string>
+  + HandleAlbumUploadCommandAsync(ctx, ct) : Task<string>
+  + HandleAlbumDoneCommandAsync(ctx, ct) : Task<string>
+}
+
+note right of IdleState
+  /album-upload → TransitionTo(AlbumUploadState)
+  file upload  → single validation
+end note
+
+note right of AlbumUploadState
+  file upload  → PendingFiles.Add()
+  /album-done  → validate all + Builder report
+               → TransitionTo(IdleState)
+end note
+
+IAlbumState    <|.. IdleState
+IAlbumState    <|.. AlbumUploadState
+AlbumSession   --> IAlbumState : _state
+IdleState      ..> AlbumUploadState : <<transitions to>>
+AlbumUploadState ..> IdleState  : <<transitions to>>
+
+@enduml

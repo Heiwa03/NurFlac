@@ -1,0 +1,54 @@
+@startuml Adapter_FfmpegAdapter
+' If any modifications are done to the classes participating in this pattern,
+' this diagram must be updated accordingly.
+
+title Adapter Pattern — FfmpegAdapter
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFECE
+  BorderColor #A80036
+}
+
+note as N1
+  <b>ADAPTER (Structural)</b>
+  IFfmpegTool is the Target interface our
+  application expects. The Linux `ffmpeg` binary
+  is the Adaptee — invoked via System.Process.
+  FfmpegAdapter (Adapter) bridges the two by
+  translating ExtractPcmSamplesAsync() into
+  Process.Start("ffmpeg", ...) and reading the
+  raw PCM output back as float[].
+end note
+
+interface IFfmpegTool << Target >> {
+  + ExtractPcmSamplesAsync(filePath, ct) : Task<float[]>
+}
+
+class FfmpegAdapter << Adapter >> {
+  + ExtractPcmSamplesAsync(filePath, ct) : Task<float[]>
+}
+
+note right of FfmpegAdapter
+  Translates to:
+  ffmpeg -ss 30 -t 30 -i <file>
+         -f f32le -ac 1 -ar 44100
+         <tempPcm> -y
+  then reads bytes → float[]
+end note
+
+class "ffmpeg (Linux binary)" as Ffmpeg << Adaptee >> {
+  + stdin : pipe
+  + stdout : pipe
+  + stderr : pipe
+}
+
+class BaseSpectralAnalyzer << Client >> {
+  # FfmpegTool : IFfmpegTool
+}
+
+IFfmpegTool     <|.. FfmpegAdapter
+FfmpegAdapter   --> Ffmpeg : Process.Start()
+BaseSpectralAnalyzer ..> IFfmpegTool : ExtractPcmSamplesAsync()
+
+@enduml
