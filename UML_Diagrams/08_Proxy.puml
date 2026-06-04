@@ -23,12 +23,16 @@ end note
 interface IUserRepository << Subject >> {
   + GetOrCreateAsync(telegramId, ct) : Task<User>
   + UpdateAsync(user, ct) : Task
+  + ResetAsync(telegramId, ct) : Task
+  + ClearAllAsync(ct) : Task<int>
 }
 
 class SqliteUserRepository << RealSubject >> {
   - _connectionString : string
   + GetOrCreateAsync(telegramId, ct) : Task<User>
   + UpdateAsync(user, ct) : Task
+  + ResetAsync(telegramId, ct) : Task
+  + ClearAllAsync(ct) : Task<int>
 }
 
 class CachingUserRepositoryProxy << Proxy >> {
@@ -37,13 +41,18 @@ class CachingUserRepositoryProxy << Proxy >> {
   - {static} CacheTtl : TimeSpan = 30s
   + GetOrCreateAsync(telegramId, ct) : Task<User>
   + UpdateAsync(user, ct) : Task
+  + ResetAsync(telegramId, ct) : Task
+  + ClearAllAsync(ct) : Task<int>
 }
 
 note bottom of CachingUserRepositoryProxy
   On hit → returns cached User.
   On miss → delegates to RealSubject,
   stores result with 30s TTL.
-  UpdateAsync() removes the entry.
+  UpdateAsync() and ResetAsync() both
+  remove the individual cache entry.
+  ClearAllAsync() delegates only —
+  30s TTL handles natural expiry.
 end note
 
 class UserService << Client >> {
@@ -52,6 +61,8 @@ class UserService << Client >> {
   + TimeoutAsync(telegramId, hours, ct) : Task
   + BanAsync(telegramId, ct) : Task
   + UnbanAsync(telegramId, ct) : Task
+  + ResetUserAsync(telegramId, ct) : Task
+  + ClearAllUsersAsync(ct) : Task<int>
 }
 
 IUserRepository         <|.. SqliteUserRepository

@@ -555,8 +555,10 @@ pattern_slide(
         'CommandDispatcher (Invoker) apelează',
         'ExecuteAsync() fără a cunoaşte comanda.',
         '',
-        'HelpCommand verifică IsAdmin() şi afişează',
-        'secțiunea admin doar administratorilor.',
+        'Comenzi admin: /ban, /timeout, /unban,',
+        '/resetuser, /clearusers, /clearledger.',
+        'HelpCommand afişează secțiunea admin',
+        'doar administratorilor (IsAdmin()).',
     ],
     problem_text=[
         'Dispatcher-ul trebuie să rute mesajele fără',
@@ -621,7 +623,7 @@ demos = [
     'Upload fişier FLAC autentic → acceptat ✓',
     'Upload fişier MP3 recodificat în FLAC → respins (spectral failure) ✗',
     'Sesiune /album-upload cu mai multe fişiere → raport final',
-    'Comenzi admin: /ban, /timeout, /unban',
+    'Comenzi admin: /ban, /timeout, /unban, /resetuser, /clearusers, /clearledger',
 ]
 dy = vy + vh + Inches(0.12)
 for i, d in enumerate(demos):

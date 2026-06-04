@@ -919,7 +919,8 @@ code_block(
     var isAdmin = config.IsAdmin(message.From?.Id ?? 0L);
     var text = isAdmin
         ? "**NurFlac Commands**\\n/start ... /help ... /formats ...\\n" +
-          "\\n**Admin Commands**\\n/ban <id> ...  /timeout <id> <h> ... /unban <id>"
+          "\\n**Admin Commands**\\n/ban <id> ... /timeout <id> <h> ... /unban <id>"
+          "\\n/resetuser <id> ... /clearusers ... /clearledger"
         : "**NurFlac Commands**\\n/start ... /help ... /formats ...";
     await botClient.SendMessage(message.Chat.Id, text, cancellationToken: ct);
 }"""
@@ -1026,6 +1027,9 @@ for cmd, desc in [
     ('/ban <id>', 'Aplică un ban permanent utilizatorului cu Telegram ID-ul specificat.'),
     ('/timeout <id> <ore>', 'Aplică un timeout temporar de durata specificată (ore).'),
     ('/unban <id>', 'Ridică banul sau timeout-ul activ al utilizatorului specificat.'),
+    ('/resetuser <id>', 'Şterge strike-urile utilizatorului şi restaurează statusul Active.'),
+    ('/clearusers', 'Şterge toate înregistrările de utilizatori din baza de date.'),
+    ('/clearledger', 'Şterge ledger-ul de deduplicare, permiţând re-upload-ul fişierelor.'),
 ]:
     p = doc.add_paragraph()
     p.paragraph_format.left_indent  = Cm(0.5)

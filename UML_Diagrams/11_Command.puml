@@ -53,6 +53,9 @@ class AlbumDoneCommand   << ConcreteCommand >>
 class BanCommand         << ConcreteCommand >>
 class TimeoutCommand     << ConcreteCommand >>
 class UnbanCommand       << ConcreteCommand >>
+class ResetUserCommand   << ConcreteCommand >>
+class ClearUsersCommand  << ConcreteCommand >>
+class ClearLedgerCommand << ConcreteCommand >>
 
 class UpdateRouter << Client >> {
   + RouteAsync(update, ct) : Task
@@ -66,6 +69,9 @@ IBotCommand <|.. AlbumDoneCommand
 IBotCommand <|.. BanCommand
 IBotCommand <|.. TimeoutCommand
 IBotCommand <|.. UnbanCommand
+IBotCommand <|.. ResetUserCommand
+IBotCommand <|.. ClearUsersCommand
+IBotCommand <|.. ClearLedgerCommand
 
 CommandDispatcher ..> IBotCommand      : ExecuteAsync()
 UpdateRouter      ..> CommandDispatcher : DispatchAsync()

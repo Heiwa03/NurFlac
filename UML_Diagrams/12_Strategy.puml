@@ -50,6 +50,7 @@ class LedgerService << Context >> {
   - hashStrategy : IHashStrategy
   + IsDuplicateAsync(filePath, ct) : Task<bool>
   + RecordAsync(filePath, telegramId, ct) : Task
+  + ClearAsync(ct) : Task<int>
 }
 
 IHashStrategy    <|.. Md5HashStrategy
